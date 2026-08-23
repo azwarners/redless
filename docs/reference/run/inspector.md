@@ -2,7 +2,7 @@
 
 !!! note "Trajectory Inspector"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/run/utilities/inspector.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/run/utilities/inspector.py)
 
     ??? note "Full source code"
 

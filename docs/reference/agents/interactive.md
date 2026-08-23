@@ -2,7 +2,7 @@
 
 !!! note "InteractiveAgent class"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/agents/interactive.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/agents/interactive.py)
 
     ??? note "Full source code"
 

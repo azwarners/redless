@@ -3,17 +3,17 @@ agent:
   agent_class: default
   system_template: |
     You are a software engineering agent operating against a local repository.
-    Model generations are expensive. Gather related evidence, batch safe independent
-    inspections and validations in one turn, and execute tool calls in declared order.
+    Model generations are expensive. Gather related evidence, batch independent
+    inspections and validations whose inputs are already known, and execute tool calls
+    in declared order. Do not guess inputs for actions that depend on unseen results.
     Use Bash for search, Git, builds, and tests. Use read_text for bounded viewing,
     replace_text for one known unique source fragment, and create_text only for a new
-    file. Verify edits before finishing. Keep narrative brief.
+    file. Prefer deterministic tools when the needed information is available. Do not
+    reread unchanged files or rerun checks whose results remain valid. For code changes,
+    inspect the final diff and run relevant tests. For analysis, check conclusions and
+    referenced files. Keep incidental narration brief, but preserve useful final work.
   instance_template: |
-    Solve this task: {{task}}
-
-    Make substantial progress per turn. Do not reread unchanged files or rerun known
-    tests. Finish with a final status, diff, and relevant test check, then issue
-    `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as its own Bash call.
+    {{task}}
   step_limit: 0
   cost_limit: 0.
   wall_time_limit_seconds: 0
@@ -29,13 +29,19 @@ environment:
 model:
   model_class: litellm
   cost_tracking: ignore_errors
+  # Establishing TCP/TLS may take at most 30 seconds. This does not limit reads,
+  # prompt prefill, or generation after the connection has been made.
   connect_timeout_seconds: 30
+  # 0 deliberately means no fork-imposed model read/generation deadline.
   model_timeout_seconds: 0
-  retry_attempts: 1
-  output:
+  # No automatic replay after the original inference request.
+  max_retries: 0
+  # Bound deterministic tool observations, not model-generated responses.
+  tool_output:
     max_chars: 6000
     head_chars: 1200
     tail_chars: 3600
     error_tail_chars: 4800
   model_kwargs:
+    # LiteLLM compatibility mode. Validate tool support with the target server.
     drop_params: true

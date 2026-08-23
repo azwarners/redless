@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Utility to manage the global config file.
+"""Manage the mini-swe-agent-slow global config file.
 
 You can also directly edit the `.env` file in the config directory.
 
@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.rule import Rule
 from typer import Argument, Typer
 
-from minisweagent import global_config_file
+from minisweagent import FORK_NAME, FORK_REPOSITORY_URL, global_config_file
 
 
 def _reload_config():
@@ -31,7 +31,7 @@ app = Typer(
 console = Console(highlight=False)
 
 
-_SETUP_HELP = """To get started, we need to set up your global config file.
+_SETUP_HELP = f"""To get started with {FORK_NAME}, we need to set up your fork-owned global config file.
 
 You can edit it manually or use the [bold green]mini-extra config set[/bold green] or [bold green]mini-extra config edit[/bold green] commands.
 
@@ -47,7 +47,8 @@ Here's a few popular models and the required API keys:
 
 [bold yellow]You can leave any setting blank to skip it.[/bold yellow]
 
-More information at https://mini-swe-agent.com/latest/quickstart/
+Fork setup documentation: {FORK_REPOSITORY_URL}
+This fork's slow-local workflow is documented in the repository README.
 To find the best model, check the leaderboard at https://swebench.com/
 """
 

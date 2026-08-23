@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-"""Run mini-SWE-agent in your local environment. This is the default executable `mini`."""
-# Read this first: https://mini-swe-agent.com/latest/usage/mini/  (usage)
+"""Run mini-swe-agent-slow in your local environment."""
 
 import os
 from pathlib import Path
@@ -10,7 +9,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from minisweagent import global_config_dir
+from minisweagent import FORK_NAME, FORK_REPOSITORY_URL, global_config_dir
 from minisweagent.agents import get_agent
 from minisweagent.agents.utils.prompt_user import _multiline_prompt
 from minisweagent.config import builtin_config_dir, get_config_from_spec
@@ -23,10 +22,14 @@ DEFAULT_CONFIG_FILE = Path(os.getenv("MSWEA_MINI_CONFIG_PATH", builtin_config_di
 DEFAULT_OUTPUT_FILE = global_config_dir / "last_mini_run.traj.json"
 
 
-_HELP_TEXT = """Run mini-SWE-agent in your local environment.
+_HELP_TEXT = f"""Run {FORK_NAME} in your local environment.
+
+Run mini-SWE-agent in your local environment.
+
+[bold yellow]Recommended command: mini-slow[/bold yellow]
 
 [not dim]
-More information about the usage: [bold green]https://mini-swe-agent.com/latest/usage/mini/[/bold green]
+Fork documentation and source: [bold green]{FORK_REPOSITORY_URL}[/bold green]
 [/not dim]
 """
 

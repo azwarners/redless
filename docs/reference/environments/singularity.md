@@ -2,7 +2,7 @@
 
 !!! note "Singularity Environment class"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/environments/singularity.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/environments/singularity.py)
 
     ??? note "Full source code"
 

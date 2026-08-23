@@ -2,7 +2,7 @@
 
 !!! note "SWE-ReX Modal Environment class"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/environments/extra/swerex_modal.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/environments/extra/swerex_modal.py)
     - Requires [Modal](https://modal.com) account and authentication
 
 This environment executes commands in [Modal](https://modal.com) sandboxes using [SWE-ReX](https://github.com/swe-agent/swe-rex).
@@ -11,7 +11,7 @@ This environment executes commands in [Modal](https://modal.com) sandboxes using
 
 1. Install the full dependencies:
    ```bash
-   pip install "mini-swe-agent[full]"
+   pip install "mini-swe-agent-slow[full]"
    ```
 
 2. Set up Modal authentication:

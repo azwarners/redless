@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """Run mini-SWE-agent on SWE-bench instances in batch mode."""
-# Read this first: https://mini-swe-agent.com/latest/usage/swebench/  (usage docs)
+# See the fork README for installation and usage notes.
 
 import concurrent.futures
 import json
@@ -28,7 +28,7 @@ from minisweagent.utils.serialize import UNSET, recursive_merge
 _HELP_TEXT = """Run mini-SWE-agent on SWEBench instances.
 
 [not dim]
-More information about the usage: [bold green]https://mini-swe-agent.com/latest/usage/swebench/[/bold green]
+Fork source and documentation: [bold green]https://github.com/azwarners/mini-swe-agent-slow[/bold green]
 [/not dim]
 """
 

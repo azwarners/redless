@@ -24,8 +24,8 @@ Current differences from upstream include:
 - exact-match source replacement: zero or multiple matches leave the file unchanged;
 - per-Bash-call timeout overrides;
 - separately configured connection and model-read timeouts for LiteLLM;
-- one model attempt by default, with no automatic retry of ambiguous connection/read
-  failures;
+- no automatic inference replay by default, including LiteLLM's OpenAI-compatible
+  client retry setting;
 - deterministic head/tail output shaping while retaining raw tool output in the
   saved trajectory; and
 - model/tool call counts, elapsed times, and LiteLLM token metrics when reported.
@@ -47,8 +47,9 @@ that supports OpenAI-style tool calls for the best result.
 
 ## Installation
 
-Install this repository from source. Do **not** use `pip install mini-swe-agent` for
-this workflow: that installs the upstream package rather than this fork.
+Install this fork from source in a virtual environment. The recommended executable
+is `mini-slow`; the older `mini` and `mini-swe-agent` names remain compatibility
+aliases.
 
 ```bash
 git clone https://github.com/azwarners/mini-swe-agent-slow.git
@@ -59,15 +60,20 @@ python -m pip install --upgrade pip
 python -m pip install -e '.[dev]'
 ```
 
-Editable installation makes the `mini` command use changes in this checkout, which is
-useful while validating or developing the fork.
+Editable installation makes the `mini-slow` command use changes in this checkout,
+which is useful while validating or developing the fork.
 
 ## Verify the installation
 
 ```bash
-mini --help
+mini-slow --help
 mini-extra --help
 ```
+
+Normal startup identifies `mini-swe-agent-slow`, reports the fork and upstream
+versions, and loads state from `~/.config/mini-swe-agent-slow/` by default. This
+directory contains fork-owned credentials and the last trajectory; set
+`MSWEA_GLOBAL_CONFIG_DIR` only when intentionally selecting another state directory.
 
 Run the test suite after installing the development extra:
 
@@ -116,8 +122,10 @@ The slow profile is the built-in `slow_local.yaml` configuration. It supplies:
 - `environment.timeout: 600` for normal Bash commands;
 - `model.connect_timeout_seconds: 30`;
 - `model.model_timeout_seconds: 0`, meaning no agent-imposed model read deadline;
-- `model.retry_attempts: 1`; and
-- a 6,000-character tool-observation budget.
+- `model.max_retries: 0`, meaning no automatic LiteLLM replay after the original
+  request; and
+- `model.tool_output`, a 6,000-character deterministic head/tail tool-observation
+  budget while preserving raw output in the trajectory.
 
 ## First run
 
@@ -141,7 +149,7 @@ EOF
 Copy `llama-local.yaml` into this directory (or use its absolute path), then run:
 
 ```bash
-MSWEA_CONFIGURED=true mini \
+MSWEA_CONFIGURED=true mini-slow \
   -c slow_local.yaml \
   -c llama-local.yaml \
   -t 'Change greeting() to return "hello, slow world" and update the test. Run pytest, inspect git diff, then submit.' \
@@ -191,11 +199,12 @@ merges the slow profile with `llama-local.yaml`. You can also use individual com
 line overrides:
 
 ```bash
-MSWEA_CONFIGURED=true mini -c slow_local.yaml -c llama-local.yaml \
+MSWEA_CONFIGURED=true mini-slow -c slow_local.yaml -c llama-local.yaml \
   -c environment.timeout=1200 \
   -c model.model_timeout_seconds=0 \
   -c model.connect_timeout_seconds=30 \
-  -c model.retry_attempts=1 \
+  -c model.max_retries=0 \
+  -c model.tool_output.max_chars=6000 \
   -t 'Inspect this repository and describe its top-level architecture.'
 ```
 
@@ -208,10 +217,10 @@ Important slow-local settings:
 | `model.model_kwargs.api_base` | OpenAI-compatible server base, including `/v1`. |
 | `model.model_kwargs.api_key` | Server key or a client-required placeholder. |
 | `environment.timeout` | Default Bash-command timeout in seconds. |
-| `model.connect_timeout_seconds` | Connection/pool/write timeout in seconds. |
-| `model.model_timeout_seconds` | Model read timeout; `0` leaves it unbounded. |
-| `model.retry_attempts` | Model attempts; the slow profile uses `1`. |
-| `model.output.max_chars` | Maximum shaped observation size. |
+| `model.connect_timeout_seconds` | TCP/TLS connection timeout only; it does not limit writes, pooling, prefill, or generation. |
+| `model.model_timeout_seconds` | HTTP read timeout; `0` leaves prompt prefill and generation unbounded by this fork. |
+| `model.max_retries` | Additional LiteLLM/OpenAI-compatible retries; the slow profile uses `0` to avoid replaying expensive inference. |
+| `model.tool_output.max_chars` | Maximum shaped tool-observation size; it does not cap model content. The profile also sets head, tail, and error-tail budgets. |
 
 ## Testing
 

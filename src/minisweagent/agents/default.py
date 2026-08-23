@@ -11,7 +11,7 @@ from pathlib import Path
 from jinja2 import StrictUndefined, Template
 from pydantic import BaseModel
 
-from minisweagent import Environment, Model, __version__
+from minisweagent import FORK_NAME, UPSTREAM_VERSION, Environment, Model, __version__
 from minisweagent.exceptions import FormatError, InterruptAgentFlow, LimitsExceeded, TimeExceeded
 from minisweagent.utils.serialize import recursive_merge
 
@@ -196,6 +196,8 @@ class DefaultAgent:
                     "agent_type": f"{self.__class__.__module__}.{self.__class__.__name__}",
                 },
                 "mini_version": __version__,
+                "fork_name": FORK_NAME,
+                "upstream_version": UPSTREAM_VERSION,
                 "exit_status": last_extra.get("exit_status", ""),
                 "submission": last_extra.get("submission", ""),
             },

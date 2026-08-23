@@ -2,7 +2,7 @@
 
 !!! note "Model Utilities"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/models/__init__.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/models/__init__.py)
 
     ??? note "Full source code"
 

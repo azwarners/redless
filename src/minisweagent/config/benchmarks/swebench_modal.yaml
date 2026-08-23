@@ -11,7 +11,7 @@
 #
 # Requirements:
 #   1. Run `modal setup` to authenticate with Modal
-#   2. Install the modal extra: `pip install mini-swe-agent[modal]`
+#   2. Install the modal extra: `pip install 'mini-swe-agent-slow[modal]'`
 
 # Modal environment configuration via SWE-ReX
 # The image will be dynamically set per-instance to match SWE-bench docker images

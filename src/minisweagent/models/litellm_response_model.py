@@ -1,4 +1,3 @@
-import logging
 import time
 from collections.abc import Callable
 
@@ -13,9 +12,6 @@ from minisweagent.models.utils.actions_toolcall_response import (
     format_toolcall_observation_messages,
     parse_toolcall_actions_response,
 )
-from minisweagent.models.utils.retry import make_request_timeout, retry
-
-logger = logging.getLogger("litellm_response_model")
 
 
 class LitellmResponseModelConfig(LitellmModelConfig):
@@ -38,17 +34,12 @@ class LitellmResponseModel(LitellmModel):
         return result
 
     def _query(self, messages: list[dict[str, str]], **kwargs):
-        request_kwargs = self.config.model_kwargs | kwargs
-        request_kwargs.setdefault(
-            "timeout",
-            make_request_timeout(self.config.connect_timeout_seconds, self.config.model_timeout_seconds),
-        )
         try:
             return litellm.responses(
                 model=self.config.model_name,
                 input=messages,
                 tools=TOOL_DEFINITIONS_RESPONSE_API,
-                **request_kwargs,
+                **self._request_kwargs(**kwargs),
             )
         except litellm.exceptions.AuthenticationError as e:
             e.message += " You can permanently set your API key with `mini-extra config set KEY VALUE`."
@@ -56,14 +47,7 @@ class LitellmResponseModel(LitellmModel):
 
     def query(self, messages: list[dict[str, str]], **kwargs) -> dict:
         request_started = time.monotonic()
-        for attempt in retry(
-            logger=logger,
-            abort_exceptions=self.abort_exceptions,
-            retry_exceptions=self.retry_exceptions(),
-            max_attempts=self.config.retry_attempts,
-        ):
-            with attempt:
-                response = self._query(self._prepare_messages_for_api(messages), **kwargs)
+        response = self._query(self._prepare_messages_for_api(messages), **kwargs)
         cost_output = self._calculate_cost(response) | {"request_elapsed_seconds": time.monotonic() - request_started}
         GLOBAL_MODEL_STATS.add(cost_output["cost"])
         try:
@@ -106,5 +90,5 @@ class LitellmResponseModel(LitellmModel):
             observation_template=self.config.observation_template,
             template_vars=template_vars,
             multimodal_regex=self.config.multimodal_regex,
-            output_config=self.config.output,
+            output_config=self.config.tool_output,
         )

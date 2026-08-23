@@ -2,7 +2,7 @@
 
 !!! note "Hello World run script"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/run/hello_world.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/run/hello_world.py)
 
     ??? note "Full source code"
 

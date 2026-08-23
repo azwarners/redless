@@ -19,13 +19,18 @@ class PreRequestError(ConnectionError):
 
 
 def make_request_timeout(connect_timeout_seconds: int, model_timeout_seconds: int) -> httpx.Timeout:
-    """Build a timeout with separate connection and model-read budgets."""
+    """Build a timeout with a connection-only deadline and an optional read deadline.
+
+    ``model_timeout_seconds=0`` deliberately becomes ``read=None``.  Never pass a
+    literal zero to httpx: it means an immediate timeout rather than an unlimited
+    model prefill/generation budget.
+    """
     return httpx.Timeout(
         timeout=None,
         connect=connect_timeout_seconds,
         read=model_timeout_seconds or None,
-        write=connect_timeout_seconds,
-        pool=connect_timeout_seconds,
+        write=None,
+        pool=None,
     )
 
 

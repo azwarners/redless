@@ -94,6 +94,16 @@ def test_mini_command_calls_run_interactive():
         mock_agent.run.assert_called_once_with("Test task")
 
 
+def test_help_identifies_the_fork():
+    result = subprocess.run(
+        [sys.executable, "-m", "minisweagent.run.mini", "--help"], capture_output=True, text=True, check=True
+    )
+    clean_output = strip_ansi_codes(result.stdout + result.stderr)
+    assert "mini-swe-agent-slow" in clean_output
+    assert "Recommended command: mini-slow" in clean_output
+    assert "github.com/azwarners/mini-swe-agent-slow" in clean_output
+
+
 def test_mini_calls_prompt_when_no_task_provided():
     """Test that mini calls prompt when no task is provided."""
     with (

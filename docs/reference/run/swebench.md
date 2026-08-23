@@ -2,7 +2,7 @@
 
 !!! note "SWE-bench run script"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/run/benchmarks/swebench.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/run/benchmarks/swebench.py)
 
 ::: minisweagent.run.benchmarks.swebench
 

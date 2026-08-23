@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import litellm
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from minisweagent.exceptions import FormatError
 from minisweagent.models import GLOBAL_MODEL_STATS
@@ -19,12 +19,14 @@ from minisweagent.models.utils.actions_toolcall import (
 from minisweagent.models.utils.anthropic_utils import _reorder_anthropic_thinking_blocks
 from minisweagent.models.utils.cache_control import set_cache_control
 from minisweagent.models.utils.openai_multimodal import expand_multimodal_content
-from minisweagent.models.utils.retry import PreRequestError, make_request_timeout, retry
+from minisweagent.models.utils.retry import make_request_timeout
 
 logger = logging.getLogger("litellm_model")
 
 
 class LitellmModelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     model_name: str
     """Model name. Highly recommended to include the provider in the model name, e.g., `anthropic/claude-sonnet-4-5-20250929`."""
     model_kwargs: dict[str, Any] = {}
@@ -43,49 +45,47 @@ class LitellmModelConfig(BaseModel):
     )
     """Template used to render the observation after executing an action."""
     multimodal_regex: str = ""
-    connect_timeout_seconds: int = 30
-    model_timeout_seconds: int = 0
-    retry_attempts: int = 1
-    output: dict[str, int] = {
-        "max_chars": 6000,
-        "head_chars": 1200,
-        "tail_chars": 3600,
-        "error_tail_chars": 4800,
-    }
     """Regex to extract multimodal content. Empty string disables multimodal processing."""
+    connect_timeout_seconds: int = Field(default=30, ge=1)
+    """TCP/TLS connection deadline only; it does not limit request reads or generation."""
+    model_timeout_seconds: int = Field(default=0, ge=0)
+    """Read deadline. Zero means no mini-SWE-agent-imposed prefill or generation deadline."""
+    max_retries: int = Field(default=0, ge=0)
+    """LiteLLM/OpenAI-compatible retries after the original request. Slow-local defaults to zero."""
+    tool_output: dict[str, int] = Field(
+        default_factory=lambda: {
+            "max_chars": 6000,
+            "head_chars": 1200,
+            "tail_chars": 3600,
+            "error_tail_chars": 4800,
+        }
+    )
+    """Character budget for tool observations only; it never truncates model responses."""
 
 
 class LitellmModel:
-    abort_exceptions: list[type[Exception]] = [
-        litellm.exceptions.UnsupportedParamsError,
-        litellm.exceptions.NotFoundError,
-        litellm.exceptions.PermissionDeniedError,
-        litellm.exceptions.ContextWindowExceededError,
-        litellm.exceptions.AuthenticationError,
-        KeyboardInterrupt,
-    ]
-
-    @staticmethod
-    def retry_exceptions() -> tuple[type[Exception], ...]:
-        return (PreRequestError,)
-
     def __init__(self, *, config_class: Callable = LitellmModelConfig, **kwargs):
         self.config = config_class(**kwargs)
         if self.config.litellm_model_registry and Path(self.config.litellm_model_registry).is_file():
             litellm.utils.register_model(json.loads(Path(self.config.litellm_model_registry).read_text()))
 
-    def _query(self, messages: list[dict[str, str]], **kwargs):
+    def _request_kwargs(self, **kwargs) -> dict[str, Any]:
         request_kwargs = self.config.model_kwargs | kwargs
-        request_kwargs.setdefault(
-            "timeout",
-            make_request_timeout(self.config.connect_timeout_seconds, self.config.model_timeout_seconds),
+        request_kwargs["timeout"] = make_request_timeout(
+            self.config.connect_timeout_seconds, self.config.model_timeout_seconds
         )
+        # LiteLLM forwards this to the OpenAI-compatible client.  Do not let its
+        # default retry policy replay an ambiguous, expensive local inference.
+        request_kwargs["max_retries"] = self.config.max_retries
+        return request_kwargs
+
+    def _query(self, messages: list[dict[str, str]], **kwargs):
         try:
             return litellm.completion(
                 model=self.config.model_name,
                 messages=messages,
                 tools=TOOL_DEFINITIONS,
-                **request_kwargs,
+                **self._request_kwargs(**kwargs),
             )
         except litellm.exceptions.AuthenticationError as e:
             e.message += " You can permanently set your API key with `mini-extra config set KEY VALUE`."
@@ -98,14 +98,7 @@ class LitellmModel:
 
     def query(self, messages: list[dict[str, str]], **kwargs) -> dict:
         request_started = time.monotonic()
-        for attempt in retry(
-            logger=logger,
-            abort_exceptions=self.abort_exceptions,
-            retry_exceptions=self.retry_exceptions(),
-            max_attempts=self.config.retry_attempts,
-        ):
-            with attempt:
-                response = self._query(self._prepare_messages_for_api(messages), **kwargs)
+        response = self._query(self._prepare_messages_for_api(messages), **kwargs)
         cost_output = self._calculate_cost(response) | {"request_elapsed_seconds": time.monotonic() - request_started}
         GLOBAL_MODEL_STATS.add(cost_output["cost"])
         # Note: all model.query() implementations must persist the response and cost on FormatError.
@@ -179,7 +172,7 @@ class LitellmModel:
             observation_template=self.config.observation_template,
             template_vars=template_vars,
             multimodal_regex=self.config.multimodal_regex,
-            output_config=self.config.output,
+            output_config=self.config.tool_output,
         )
 
     def get_template_vars(self, **kwargs) -> dict[str, Any]:

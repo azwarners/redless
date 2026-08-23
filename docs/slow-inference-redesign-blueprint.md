@@ -77,6 +77,7 @@ projection machinery.
 | Critical for v1 | Explicit model timeout/retry policy and practical command timeouts with per-call override | Very high | Medium |
 | Critical for v1 | Predictable output budget and compact observations | High | Low–medium |
 | Critical for v1 | Timing/call instrumentation and a representative validation corpus | High for decisions | Low–medium |
+| Critical before Phase 3 | Distinguishable fork identity, isolated global state, and an unambiguous CLI entry point | High for safe validation | Low |
 | Useful soon | Stable structured working state, atomic checkpoints, explicit resume | High when interruptions are frequent | Medium |
 | Useful soon | Optional deterministic live-context projection while retaining full trajectory | High for long tasks | Medium |
 | Useful soon | Text-mode multi-tool grammar, only if local models need it | Medium–high | Medium |
@@ -457,6 +458,110 @@ failure safety.
 Add explicit model timeout policy, safe retry classification, and no automatic retry
 of ambiguous long-running inference. Add compact deterministic tool-output shaping,
 model/tool timing and call-count instrumentation, and token metrics when available.
+
+### Phase 2.5 — Fork identity and isolated local state
+
+Complete this small identity pass before asking anyone to perform Phase 3 live-model
+validation. A user must be able to tell from the first line of `mini --help`, a saved
+trajectory, and the default state directory that they are running this fork rather
+than upstream mini-SWE-agent. The current upstream banner, upstream-only help links,
+shared `~/.config/mini-swe-agent` directory, and generic `mini` entry point make it
+too easy to test the wrong executable or mix configuration and trajectories between
+projects.
+
+This phase is naming and isolation work, not a new runtime abstraction. Keep the
+Python import package `minisweagent`; renaming it would create broad compatibility
+cost without improving normal CLI safety.
+
+#### Required implementation
+
+1. **Define one small fork identity source.** In `minisweagent/__init__.py`, expose
+   a human-facing name such as `mini-swe-agent-slow`, the fork version, and the
+   upstream base version where practical. Use a valid PEP 440 fork version (for
+   example `2.4.6+slow.1`) rather than presenting an upstream release number as the
+   fork's complete identity. Reuse these values in startup output and trajectory
+   metadata; do not duplicate string literals across CLI modules.
+2. **Make startup output unambiguous.** Replace the current upstream banner and v2
+   migration-guide message with a concise statement that this is
+   `mini-swe-agent-slow`, that it is a fork of mini-SWE-agent, its fork/upstream
+   version, and the global configuration file being loaded. Do not print a migration
+   link that belongs only to upstream. Preserve `MSWEA_SILENT_STARTUP` behavior.
+3. **Isolate default user state.** Change the default `platformdirs.user_config_dir`
+   application name from `mini-swe-agent` to `mini-swe-agent-slow`. This changes the
+   default `.env` and `last_mini_run.traj.json` locations to a fork-owned directory,
+   so a normal invocation cannot silently use upstream credentials/model defaults or
+   overwrite its last trajectory. Continue honoring the explicit
+   `MSWEA_GLOBAL_CONFIG_DIR` override exactly as today. Do not copy, import, or
+   delete the upstream directory automatically; migration must be a conscious user
+   action.
+4. **Add an unambiguous executable without breaking local convenience.** Retain
+   `mini` and `mini-swe-agent` entry points for existing checkout workflows, but add
+   `mini-slow` (and, if the packaging convention remains simple,
+   `mini-swe-agent-slow`) mapped to the same CLI application. Document `mini-slow`
+   as the recommended command for validation and support requests. Its help must
+   identify the fork even if it was launched through `mini`.
+5. **Correct distribution metadata deliberately.** Change the project distribution
+   name in `pyproject.toml` to `mini-swe-agent-slow`, update the description and
+   project URLs to this fork, and keep explicit upstream attribution in the README
+   and license. Audit self-references in optional dependency groups so they install
+   this distribution rather than downloading upstream. Do not claim upstream benchmark
+   results for this fork. Preserve the `minisweagent` import namespace and existing
+   model/config compatibility.
+6. **Make help and setup fork-oriented.** In `run/mini.py` and global-config setup
+   help, replace upstream-only usage/quickstart links with this fork's README or
+   documentation location. Keep a short upstream attribution link where useful, but
+   basic setup instructions must describe the fork's slow-local path. Update default
+   config/output help text if it mentions upstream names.
+7. **Identify saved runs.** Extend the existing serialized `info` metadata with a
+   stable fork name and upstream base version while retaining `mini_version` for
+   reader compatibility. This is informational only; do not change trajectory
+   control flow or add resume behavior in this phase.
+
+#### Compatibility and safety constraints
+
+- No automatic migration, copying, or deletion of `~/.config/mini-swe-agent`.
+- No rename of `minisweagent` Python imports, configuration key namespaces, or the
+  `MSWEA_*` environment-variable prefix in this phase.
+- `MSWEA_GLOBAL_CONFIG_DIR`, `MSWEA_MINI_CONFIG_PATH`, and an explicit `-o` path
+  remain intentional escape hatches and must continue to win over defaults.
+- Do not make `mini` disappear: shell resolution may still select an upstream binary
+  when both distributions are installed. The recommended `mini-slow` command and
+  self-identifying startup banner solve this without a disruptive compatibility break.
+- Keep this change independent of slow-local behavior. It must work for local,
+  container, analysis, and code-changing configurations alike.
+
+#### Tests and verification
+
+Add focused tests that:
+
+- import the package with a temporary home/config environment and assert the default
+  global directory contains `mini-swe-agent-slow`, not `mini-swe-agent`;
+- assert an explicit `MSWEA_GLOBAL_CONFIG_DIR` still controls the directory;
+- capture normal startup output and assert it names the fork, version, and selected
+  config path, while `MSWEA_SILENT_STARTUP` emits nothing;
+- invoke `mini --help` and `mini-slow --help` in the installed test environment and
+  assert both identify the fork and present fork-owned documentation/help text;
+- inspect package metadata/entry points after editable and wheel installation to
+  confirm the distribution is `mini-swe-agent-slow` and `mini-slow` resolves to the
+  same CLI function;
+- serialize a small deterministic run and assert its metadata contains fork identity
+  while existing trajectory readers and `mini_version` expectations remain valid;
+- verify an existing upstream-shaped config directory is neither read nor changed
+  unless the user explicitly supplies `MSWEA_GLOBAL_CONFIG_DIR`.
+
+Manual acceptance check: in a clean virtual environment with both upstream and this
+fork available, `mini-slow --help` must make the selected fork obvious, and a normal
+fork run must create/read only its own config directory. Record `command -v mini`,
+`command -v mini-slow`, and the startup banner in the Phase 3 environment notes.
+
+**Completed 2026-08-22 after documentation audit.** The fork identity, isolated
+state directory, `mini-slow` entry point, trajectory metadata, fork-oriented help,
+README/config guidance, and packaging metadata are aligned. The editable package was
+reinstalled in the project virtual environment. `command -v mini` and
+`command -v mini-slow` resolve to that environment, both help paths identify the
+fork, the fork-owned state path and packaged `slow_local.yaml` were verified, and the
+documented local llama.cpp command shape was checked. Live model/server validation
+remains Phase 3 work.
 
 ### Phase 3 — Real-model validation
 

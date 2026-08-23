@@ -12,6 +12,8 @@ from minisweagent.config import (
     get_config_from_spec,
     get_config_path,
 )
+from minisweagent.models import get_model
+from minisweagent.models.litellm_model import LitellmModelConfig
 
 
 class TestKeyValueSpecToNestedDict:
@@ -128,6 +130,16 @@ class TestGetConfigFromSpec:
         )
         result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
         assert result.returncode == 0, result.stderr
+
+    def test_slow_local_profile_has_only_consumed_model_settings(self):
+        config = get_config_from_spec("slow_local.yaml")
+        model = get_model(config=config["model"] | {"model_name": "test"})
+        assert isinstance(model.config, LitellmModelConfig)
+        model = model.config
+        assert model.connect_timeout_seconds == 30
+        assert model.model_timeout_seconds == 0
+        assert model.max_retries == 0
+        assert model.tool_output["max_chars"] == 6000
 
 
 _ALL_BUILTIN_CONFIGS = list(builtin_config_dir.rglob("*.yaml"))

@@ -2,7 +2,7 @@
 
 !!! note "ConTree Environment class"
 
-    - [Read on GitHub](https://github.com/swe-agent/mini-swe-agent/blob/main/src/minisweagent/environments/extra/contree.py)
+    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/environments/extra/contree.py)
     - Requires [ConTree](https://contree.dev) token
 
     ??? note "Full source code"
@@ -19,7 +19,7 @@ This environment executes commands in [ConTree](https://contree.dev) sandboxes u
 
 1. Install the dependencies:
    ```bash
-   pip install "mini-swe-agent[contree]"
+   pip install "mini-swe-agent-slow[contree]"
    ```
 
 2. Set up ConTree token and base_url:
@@ -42,4 +42,3 @@ mini-extra swebench \
 It can be specified both through cli parameter or by setting `environment_class` to `contree` in your swebench.yaml config
 
 {% include-markdown "../../_footer.md" %}
-
