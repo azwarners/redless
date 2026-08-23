@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from minisweagent.exceptions import FormatError
 from minisweagent.models.litellm_model import LitellmModel, LitellmModelConfig
+from minisweagent.models.litellm_response_model import LitellmResponseModel
 from minisweagent.models.utils.actions_toolcall import TOOL_DEFINITIONS
 
 
@@ -32,12 +33,39 @@ def _mock_litellm_response(tool_calls):
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
     mock_response.choices[0].message.tool_calls = tool_calls
+    mock_response.choices[0].message.content = None
     mock_response.choices[0].message.model_dump.return_value = {"role": "assistant", "content": None}
     mock_response.model_dump.return_value = {}
     return mock_response
 
 
 class TestLitellmModel:
+    @patch("minisweagent.models.litellm_model.litellm.completion")
+    @patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost")
+    def test_text_without_tool_calls_is_a_final_response(self, mock_cost, mock_completion):
+        response = _mock_litellm_response(None)
+        response.choices[0].message.content = "Created and tested rps.py."
+        response.choices[0].message.model_dump.return_value = {
+            "role": "assistant",
+            "content": "Created and tested rps.py.",
+        }
+        mock_completion.return_value = response
+        mock_cost.return_value = 0.001
+
+        result = LitellmModel(model_name="gpt-4").query([{"role": "user", "content": "test"}])
+
+        assert result["extra"]["actions"] == []
+        assert result["extra"]["is_final"] is True
+        assert result["extra"]["final_text"] == "Created and tested rps.py."
+
+    @patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost")
+    def test_disabled_cost_tracking_preserves_usage_without_calling_litellm(self, mock_cost):
+        result = LitellmModel(model_name="local-model", cost_tracking="disabled")._calculate_cost(
+            {"usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}}
+        )
+        assert result == {"cost": 0.0, "input_tokens": 5, "output_tokens": 3, "total_tokens": 8}
+        mock_cost.assert_not_called()
+
     @patch("minisweagent.models.litellm_model.litellm.completion")
     @patch("minisweagent.models.litellm_model.litellm.cost_calculator.completion_cost")
     def test_query_includes_bash_tool(self, mock_cost, mock_completion):
@@ -150,3 +178,15 @@ class TestLitellmModel:
         model = LitellmModel(model_name="gpt-4")
         result = model.format_observation_messages({"extra": {}}, [])
         assert result == []
+
+
+def test_responses_api_text_without_tool_calls_is_a_final_response(monkeypatch):
+    response = {"output": [{"type": "message", "content": [{"type": "output_text", "text": "Done."}]}]}
+    monkeypatch.setattr(LitellmResponseModel, "_query", lambda *_: response)
+    monkeypatch.setattr(LitellmResponseModel, "_calculate_cost", lambda *_: {"cost": 0.0})
+
+    result = LitellmResponseModel(model_name="test/model").query([{"role": "user", "content": "test"}])
+
+    assert result["extra"]["actions"] == []
+    assert result["extra"]["is_final"] is True
+    assert result["extra"]["final_text"] == "Done."

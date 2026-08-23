@@ -102,7 +102,10 @@ def main(
     model = get_model(config=config.get("model", {}))
     env = get_environment(config.get("environment", {}), default_type="local")
     agent = get_agent(model, env, config.get("agent", {}), default_type="interactive")
-    agent.run(run_task)
+    result = agent.run(run_task)
+    if submission := result.get("submission"):
+        console.print("\n[bold green]Task complete.[/bold green]\n")
+        console.print(submission)
     if (output_path := config.get("agent", {}).get("output_path")):
         console.print(f"Saved trajectory to [bold green]'{output_path}'[/bold green]")
     return agent

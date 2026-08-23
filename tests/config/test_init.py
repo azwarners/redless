@@ -140,6 +140,10 @@ class TestGetConfigFromSpec:
         assert model.model_timeout_seconds == 0
         assert model.max_retries == 0
         assert model.tool_output["max_chars"] == 6000
+        assert "run sequentially" in config["agent"]["system_template"]
+        assert "command validations in one Bash action" in config["agent"]["system_template"]
+        assert "Never stage a file just to" in config["agent"]["system_template"]
+        assert "Make validation\ndeterministic" in config["agent"]["system_template"]
 
 
 _ALL_BUILTIN_CONFIGS = list(builtin_config_dir.rglob("*.yaml"))

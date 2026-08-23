@@ -51,7 +51,8 @@ class LitellmResponseModel(LitellmModel):
         cost_output = self._calculate_cost(response) | {"request_elapsed_seconds": time.monotonic() - request_started}
         GLOBAL_MODEL_STATS.add(cost_output["cost"])
         try:
-            actions = self._parse_actions(response)
+            final_text = self._final_text(response)
+            actions = [] if final_text else self._parse_actions(response)
         except FormatError as e:
             e.messages[0]["extra"].update(cost_output)
             # hasattr guard: litellm.responses() returns a pydantic object, but tests
@@ -67,10 +68,28 @@ class LitellmResponseModel(LitellmModel):
         message = response.model_dump() if hasattr(response, "model_dump") else dict(response)
         message["extra"] = {
             "actions": actions,
+            "is_final": bool(final_text),
+            "final_text": final_text,
             **cost_output,
             "timestamp": time.time(),
         }
         return message
+
+    @staticmethod
+    def _final_text(response) -> str:
+        output = response.get("output", []) if isinstance(response, dict) else getattr(response, "output", [])
+        if any((item.get("type") if isinstance(item, dict) else getattr(item, "type", None)) == "function_call" for item in output):
+            return ""
+        text = []
+        for item in output:
+            content = item.get("content", []) if isinstance(item, dict) else getattr(item, "content", [])
+            if isinstance(content, str):
+                text.append(content)
+            else:
+                text.extend(
+                    part.get("text", "") if isinstance(part, dict) else getattr(part, "text", "") for part in content
+                )
+        return "".join(text).strip()
 
     def _parse_actions(self, response) -> list[dict]:
         return parse_toolcall_actions_response(

@@ -4,6 +4,7 @@ or https://minimal-agent.com for a tutorial on the basic building principles.
 
 import json
 import logging
+import sys
 import time
 import traceback
 from pathlib import Path
@@ -12,7 +13,7 @@ from jinja2 import StrictUndefined, Template
 from pydantic import BaseModel
 
 from minisweagent import FORK_NAME, UPSTREAM_VERSION, Environment, Model, __version__
-from minisweagent.exceptions import FormatError, InterruptAgentFlow, LimitsExceeded, TimeExceeded
+from minisweagent.exceptions import FormatError, InterruptAgentFlow, LimitsExceeded, Submitted, TimeExceeded
 from minisweagent.utils.serialize import recursive_merge
 
 
@@ -33,6 +34,8 @@ class AgentConfig(BaseModel):
     """Exit after this many format errors in a row (0 = no limit)."""
     output_path: Path | None = None
     """Save the trajectory to this path."""
+    show_progress: bool = False
+    """Print concise model and tool progress to stderr."""
 
 
 class DefaultAgent:
@@ -76,6 +79,10 @@ class DefaultAgent:
         self.logger.debug(messages)  # set log level to debug to see
         self.messages.extend(messages)
         return list(messages)
+
+    def _progress(self, message: str) -> None:
+        if self.config.show_progress:
+            print(f"[mini-swe-agent-slow] {message}", file=sys.stderr, flush=True)
 
     def handle_uncaught_exception(self, e: Exception) -> list[dict]:
         return self.add_messages(
@@ -131,7 +138,18 @@ class DefaultAgent:
 
     def step(self) -> list[dict]:
         """Query the LM, execute actions."""
-        return self.execute_actions(self.query())
+        message = self.query()
+        if message.get("extra", {}).get("is_final"):
+            final_text = message["extra"]["final_text"]
+            self._progress("Task complete.")
+            raise Submitted(
+                {
+                    "role": "exit",
+                    "content": final_text,
+                    "extra": {"exit_status": "Submitted", "submission": final_text},
+                }
+            )
+        return self.execute_actions(message)
 
     def query(self) -> dict:
         """Query the model and return model messages. Override to add hooks."""
@@ -152,6 +170,7 @@ class DefaultAgent:
                 }
             )
         self.n_calls += 1
+        self._progress(f"Waiting for model response (call {self.n_calls})…")
         started = time.monotonic()
         try:
             message = self.model.query(self.messages)
@@ -159,12 +178,15 @@ class DefaultAgent:
             self.model_elapsed_seconds += time.monotonic() - started
         self.cost += message.get("extra", {}).get("cost", 0.0)
         self.add_messages(message)
+        self._progress(f"Received model response in {time.monotonic() - started:.1f}s.")
         return message
 
     def execute_actions(self, message: dict) -> list[dict]:
         """Execute actions in message, add observation messages, return them."""
         outputs = []
-        for action in message.get("extra", {}).get("actions", []):
+        actions = message.get("extra", {}).get("actions", [])
+        for index, action in enumerate(actions, start=1):
+            self._progress(f"Running {action.get('tool', 'bash')} action {index}/{len(actions)}…")
             started = time.monotonic()
             if action.get("tool", "bash") == "bash":
                 output = self.env.execute(action, timeout=action.get("timeout_seconds"))
@@ -176,6 +198,7 @@ class DefaultAgent:
             outputs.append(output)
             self.tool_elapsed_seconds += output["duration_seconds"]
             self.n_tool_calls += 1
+            self._progress(f"Action {index}/{len(actions)} finished in {output['duration_seconds']:.1f}s.")
         return self.add_messages(*self.model.format_observation_messages(message, outputs, self.get_template_vars()))
 
     def serialize(self, *extra_dicts) -> dict:

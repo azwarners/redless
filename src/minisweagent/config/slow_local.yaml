@@ -3,20 +3,33 @@ agent:
   agent_class: default
   system_template: |
     You are a software engineering agent operating against a local repository.
-    Model generations are expensive. Gather related evidence, batch independent
-    inspections and validations whose inputs are already known, and execute tool calls
-    in declared order. Do not guess inputs for actions that depend on unseen results.
+    Model generations are expensive. Gather related evidence and batch independent
+    inspections and validations whose inputs are already known. Actions in one response
+    run sequentially: include a later action when it only needs an earlier action's
+    known effect (for example, create a file then syntax-check it). Combine related
+    command validations in one Bash action. Do not guess inputs that need unseen results.
     Use Bash for search, Git, builds, and tests. Use read_text for bounded viewing,
     replace_text for one known unique source fragment, and create_text only for a new
     file. Prefer deterministic tools when the needed information is available. Do not
-    reread unchanged files or rerun checks whose results remain valid. For code changes,
-    inspect the final diff and run relevant tests. For analysis, check conclusions and
-    referenced files. Keep incidental narration brief, but preserve useful final work.
+    reread unchanged files or rerun checks whose results remain valid. Make validation
+    deterministic; do not repeat random programs to seek a desired outcome when a
+    controlled test can prove it. For code changes,
+    inspect the final diff and run relevant tests. Check whether this is a Git work tree
+    before relying on Git; a missing repository is a fact to report, not a reason to
+    repeat Git commands. Do not stage, commit, reset, checkout, clean, or otherwise
+    mutate Git state unless the task explicitly requests it. Never stage a file just to
+    inspect its diff. For a new untracked file, use `git diff --no-index /dev/null FILE`
+    to inspect it without staging; exit code 1 means a diff was found. For analysis,
+    check conclusions and referenced files. Keep
+    incidental narration brief, but preserve useful final work.
+    When the task is complete, respond with a concise final answer. Do not make an
+    extra tool call merely to announce completion.
   instance_template: |
     {{task}}
   step_limit: 0
   cost_limit: 0.
   wall_time_limit_seconds: 0
+  show_progress: true
 environment:
   environment_class: local
   timeout: 600
@@ -28,7 +41,7 @@ environment:
     TQDM_DISABLE: '1'
 model:
   model_class: litellm
-  cost_tracking: ignore_errors
+  cost_tracking: disabled
   # Establishing TCP/TLS may take at most 30 seconds. This does not limit reads,
   # prompt prefill, or generation after the connection has been made.
   connect_timeout_seconds: 30

@@ -151,6 +151,37 @@ def test_successful_completion(model_factory):
     assert agent.n_calls == 2
 
 
+def test_final_model_text_completes_without_an_extra_query(toolcall_config):
+    output = make_toolcall_output("Created rps.py.", [], [])
+    output["extra"]["is_final"] = True
+    output["extra"]["final_text"] = "Created rps.py."
+    agent = DefaultAgent(model=DeterministicToolcallModel(outputs=[output]), env=LocalEnvironment(), **toolcall_config)
+
+    info = agent.run("Create a game")
+
+    assert info == {"exit_status": "Submitted", "submission": "Created rps.py."}
+    assert agent.n_calls == 1
+    assert agent.messages[-2]["content"] == "Created rps.py."
+    assert agent.messages[-1]["content"] == "Created rps.py."
+
+
+def test_slow_local_progress_reports_model_and_completion(toolcall_config, capsys):
+    output = make_toolcall_output("Done.", [], [])
+    output["extra"]["is_final"] = True
+    output["extra"]["final_text"] = "Done."
+    agent = DefaultAgent(
+        model=DeterministicToolcallModel(outputs=[output]),
+        env=LocalEnvironment(),
+        **{**toolcall_config, "show_progress": True},
+    )
+
+    agent.run("Finish")
+
+    stderr = capsys.readouterr().err
+    assert "Waiting for model response (call 1)" in stderr
+    assert "Task complete." in stderr
+
+
 def test_step_limit_enforcement(model_factory):
     """Test agent stops when step limit is reached."""
     factory, config = model_factory

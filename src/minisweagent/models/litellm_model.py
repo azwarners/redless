@@ -35,8 +35,8 @@ class LitellmModelConfig(BaseModel):
     """Model registry for cost tracking and model metadata. See the local model guide (https://mini-swe-agent.com/latest/models/local_models/) for more details."""
     set_cache_control: Literal["default_end"] | None = None
     """Set explicit cache control markers, for example for Anthropic models"""
-    cost_tracking: Literal["default", "ignore_errors"] = os.getenv("MSWEA_COST_TRACKING", "default")
-    """Cost tracking mode for this model. Can be "default" or "ignore_errors" (ignore errors/missing cost info)"""
+    cost_tracking: Literal["default", "ignore_errors", "disabled"] = os.getenv("MSWEA_COST_TRACKING", "default")
+    """Cost tracking mode. ``disabled`` keeps token metrics without calling LiteLLM's cost calculator."""
     format_error_template: str = "{{ error }}"
     """Template used when the LM's output is not in the expected format."""
     observation_template: str = (
@@ -103,7 +103,8 @@ class LitellmModel:
         GLOBAL_MODEL_STATS.add(cost_output["cost"])
         # Note: all model.query() implementations must persist the response and cost on FormatError.
         try:
-            actions = self._parse_actions(response)
+            is_final = self._is_final_response(response)
+            actions = [] if is_final else self._parse_actions(response)
         except FormatError as e:
             e.messages[0]["extra"].update(cost_output)
             try:
@@ -116,30 +117,40 @@ class LitellmModel:
         message = response.choices[0].message.model_dump()
         message["extra"] = {
             "actions": actions,
+            "is_final": is_final,
+            "final_text": message.get("content", "") if is_final else "",
             "response": response.model_dump(),
             **cost_output,
             "timestamp": time.time(),
         }
         return message
 
+    @staticmethod
+    def _is_final_response(response) -> bool:
+        message = response.choices[0].message
+        return not message.tool_calls and isinstance(message.content, str) and bool(message.content.strip())
+
     def _calculate_cost(self, response) -> dict[str, float]:
-        try:
-            cost = litellm.cost_calculator.completion_cost(response, model=self.config.model_name)
-            if cost <= 0.0:
-                raise ValueError(f"Cost must be > 0.0, got {cost}")
-        except Exception as e:
+        if self.config.cost_tracking == "disabled":
             cost = 0.0
-            if self.config.cost_tracking != "ignore_errors":
-                msg = (
-                    f"Error calculating cost for model {self.config.model_name}: {e}, perhaps it's not registered? "
-                    "You can ignore this issue from your config file with cost_tracking: 'ignore_errors' or "
-                    "globally with export MSWEA_COST_TRACKING='ignore_errors'. "
-                    "Alternatively check the 'Cost tracking' section in the documentation at "
-                    "https://klieret.short.gy/mini-local-models. "
-                    " Still stuck? Please open a github issue at https://github.com/SWE-agent/mini-swe-agent/issues/new/choose!"
-                )
-                logger.critical(msg)
-                raise RuntimeError(msg) from e
+        else:
+            try:
+                cost = litellm.cost_calculator.completion_cost(response, model=self.config.model_name)
+                if cost <= 0.0:
+                    raise ValueError(f"Cost must be > 0.0, got {cost}")
+            except Exception as e:
+                cost = 0.0
+                if self.config.cost_tracking != "ignore_errors":
+                    msg = (
+                        f"Error calculating cost for model {self.config.model_name}: {e}, perhaps it's not registered? "
+                        "You can ignore this issue from your config file with cost_tracking: 'ignore_errors' or "
+                        "globally with export MSWEA_COST_TRACKING='ignore_errors'. "
+                        "Alternatively check the 'Cost tracking' section in the documentation at "
+                        "https://klieret.short.gy/mini-local-models. "
+                        " Still stuck? Please open a github issue at https://github.com/SWE-agent/mini-swe-agent/issues/new/choose!"
+                    )
+                    logger.critical(msg)
+                    raise RuntimeError(msg) from e
         usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
         usage = usage.model_dump() if hasattr(usage, "model_dump") else usage or {}
         return {

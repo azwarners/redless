@@ -52,6 +52,31 @@ def test_configure_if_first_time_called():
         mock_configure.assert_called_once()
 
 
+def test_mini_prints_the_final_submission():
+    with (
+        patch("minisweagent.run.mini.configure_if_first_time"),
+        patch("minisweagent.run.mini.get_agent") as mock_get_agent,
+        patch("minisweagent.run.mini.get_model"),
+        patch("minisweagent.run.mini.get_environment"),
+        patch("minisweagent.run.mini.get_config_from_spec", return_value={"agent": {}, "environment": {}, "model": {}}),
+        patch("minisweagent.run.mini.console.print") as mock_print,
+    ):
+        mock_get_agent.return_value.run.return_value = {"exit_status": "Submitted", "submission": "Created rps.py."}
+
+        main(
+            config_spec=[str(DEFAULT_CONFIG_FILE)],
+            model_name="test-model",
+            task="Test task",
+            yolo=False,
+            output=None,
+            model_class=None,
+            agent_class=None,
+            environment_class=None,
+        )
+
+        mock_print.assert_any_call("Created rps.py.")
+
+
 def test_mini_command_calls_run_interactive():
     """Test that mini command creates agent via get_agent."""
     with (

@@ -315,7 +315,7 @@ boundary, and users need explicit override control.
   path with integration tests before claiming the mapping works.
 - Keep `drop_params: true` only when it is known not to discard required local-server
   controls; log the effective supported parameters at debug level without secrets.
-- Let local models use `cost_tracking: ignore_errors` and treat `n_model_calls`, input
+- Let local models use `cost_tracking: disabled` and treat `n_model_calls`, input
   tokens (when reported), output tokens, and elapsed generation time as first-class
   metrics. Dollar cost is often meaningless locally.
 - Test tool schema compatibility. If the server cannot reliably emit multiple native

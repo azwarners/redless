@@ -48,19 +48,29 @@ upstream mini-SWE-agent directory.
 This is the shortest useful setup path. It creates one small settings file, then asks
 the agent to inspect the repository you are currently in.
 
-### 1. Go to the repository the agent should work on
+### 1. Create a workspace
 
-Use a clean Git branch or a disposable copy for your first run.
+For an existing project, use a clean Git branch or disposable copy. For a new task,
+create a safe workspace with one command:
 
 ```bash
-cd /path/to/your/repository
-git status
+mini-slow-workspace init ~/mini-workspaces/first-task \
+  --model YOUR_MODEL_NAME \
+  --api-base http://127.0.0.1:8080/v1
 ```
 
-### 2. Create a local model settings file
+It creates a new Git workspace and its local llama.cpp settings file, and it refuses
+to use an existing directory. Then enter it:
+
+```bash
+cd ~/mini-workspaces/first-task
+```
+
+### 2. Create or check local model settings
 
 This file is just your local server address and model name. It is not special, and it
-does not need to be committed. Create it inside the target repository:
+does not need to be committed. If you used `mini-slow-workspace`, it already exists.
+Otherwise, create it inside the target repository:
 
 ```bash
 mkdir -p .mini-swe-agent-slow
@@ -104,7 +114,8 @@ MSWEA_CONFIGURED=true mini-slow \
 
 `MSWEA_CONFIGURED=true` skips the optional first-time setup questions for hosted
 providers; your local settings file already supplies what this run needs. The saved
-`mini-slow-run.traj.json` file records the conversation, commands, and timings.
+`mini-slow-run.traj.json` file records the conversation, commands, and timings. The
+terminal shows when the model is working, when an action runs, and the final answer.
 
 For a code change, give a direct task and ask for validation:
 
@@ -169,11 +180,20 @@ Install the development tools, then run the tests:
 
 ```bash
 python -m pip install -e '.[dev]'
-XDG_CONFIG_HOME="$(mktemp -d)" pytest -q
+XDG_CONFIG_HOME=/tmp/mini-swe-agent-slow-tests pytest -q
 ```
 
 These tests do not contact your model server. There is no checked-in live llama.cpp
 test yet; use the first local-model run above once your server is available.
+
+## First CPU validation
+
+The fork's first documented CPU-only Kimi K2.7 Code (UD-IQ4_XS) run completed a deterministic
+single-file Hangman task on an HPE ProLiant DL380 Gen9. It used seven model calls and
+about 75 minutes of model time while deterministic tool work took under one second.
+This is an early development result, not a benchmark comparison. See the sanitized
+[run record](docs/testing_output/first-kimi-k2.7-code-run.md) for the task, outcome,
+and llama.cpp timing/cache observations.
 
 ## Current limits
 
