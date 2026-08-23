@@ -6,6 +6,8 @@ import time
 from jinja2 import StrictUndefined, Template
 
 from minisweagent.exceptions import FormatError
+from minisweagent.models.utils.actions_toolcall import TEXT_TOOLS, parse_action_arguments
+from minisweagent.utils.output import shape_output
 
 # OpenRouter/OpenAI Responses API uses a flat structure (no nested "function" key)
 BASH_TOOL_RESPONSE_API = {
@@ -18,11 +20,25 @@ BASH_TOOL_RESPONSE_API = {
             "command": {
                 "type": "string",
                 "description": "The bash command to execute",
-            }
+            },
+            "timeout_seconds": {"type": "integer", "minimum": 1},
         },
         "required": ["command"],
+        "additionalProperties": False,
     },
 }
+
+TEXT_TOOLS_RESPONSE_API = [
+    {
+        "type": "function",
+        "name": tool["function"]["name"],
+        "description": tool["function"]["description"],
+        "parameters": tool["function"]["parameters"],
+    }
+    for tool in TEXT_TOOLS
+]
+
+TOOL_DEFINITIONS_RESPONSE_API = [BASH_TOOL_RESPONSE_API, *TEXT_TOOLS_RESPONSE_API]
 
 
 def _format_error_message(error_text: str) -> dict:
@@ -91,16 +107,16 @@ def parse_toolcall_actions_response(
             args = json.loads(tool_call.get("arguments", "{}"))
         except Exception as e:
             error_msg = f"Error parsing tool call arguments: {e}."
-        if tool_call.get("name") != "bash":
-            error_msg += f"Unknown tool '{tool_call.get('name')}'."
-        if not isinstance(args, dict) or "command" not in args:
-            error_msg += "Missing 'command' argument in bash tool call."
+        try:
+            action = parse_action_arguments(tool_call.get("name"), args)
+        except ValueError as e:
+            error_msg += str(e)
         if error_msg:
             error_text = Template(format_error_template, undefined=StrictUndefined).render(
                 error=error_msg.strip(), actions=[], has_tool_calls=True, **template_kwargs
             )
             raise FormatError(_format_error_message(error_text))
-        actions.append({"command": args["command"], "tool_call_id": tool_call.get("call_id") or tool_call.get("id")})
+        actions.append({**action, "tool_call_id": tool_call.get("call_id") or tool_call.get("id")})
     return actions
 
 
@@ -111,21 +127,28 @@ def format_toolcall_observation_messages(
     observation_template: str,
     template_vars: dict | None = None,
     multimodal_regex: str = "",
+    output_config: dict | None = None,
 ) -> list[dict]:
     """Format execution outputs into function_call_output messages for Responses API."""
     not_executed = {"output": "", "returncode": -1, "exception_info": "action was not executed"}
     padded_outputs = outputs + [not_executed] * (len(actions) - len(outputs))
     results = []
     for action, output in zip(actions, padded_outputs):
+        raw_output = output.get("output", "")
+        output = shape_output(output, **(output_config or {}))
         content = Template(observation_template, undefined=StrictUndefined).render(
             output=output, **(template_vars or {})
         )
         msg: dict = {
             "extra": {
-                "raw_output": output.get("output", ""),
+                "raw_output": raw_output,
                 "returncode": output.get("returncode"),
                 "timestamp": time.time(),
                 "exception_info": output.get("exception_info"),
+                "timeout": output.get("timeout", False),
+                "duration_seconds": output.get("duration_seconds"),
+                "truncated": output.get("truncated", False),
+                "original_chars": output.get("original_chars"),
                 **output.get("extra", {}),
             },
         }

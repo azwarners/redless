@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from minisweagent.exceptions import Submitted
+from minisweagent.tools.text import TextTool
 from minisweagent.utils.serialize import recursive_merge
 
 
@@ -41,6 +42,9 @@ class LocalEnvironment:
             }
         self._check_finished(output)
         return output
+
+    def execute_text(self, action: dict) -> dict[str, Any]:
+        return TextTool(self.config.cwd or os.getcwd()).execute(action)
 
     def _check_finished(self, output: dict):
         """Raises Submitted if the output indicates task completion."""

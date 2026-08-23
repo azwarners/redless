@@ -8,12 +8,12 @@ from minisweagent.exceptions import FormatError
 from minisweagent.models import GLOBAL_MODEL_STATS
 from minisweagent.models.litellm_model import LitellmModel, LitellmModelConfig
 from minisweagent.models.utils.actions_toolcall_response import (
-    BASH_TOOL_RESPONSE_API,
+    TOOL_DEFINITIONS_RESPONSE_API,
     finish_reason_from_responses_api,
     format_toolcall_observation_messages,
     parse_toolcall_actions_response,
 )
-from minisweagent.models.utils.retry import retry
+from minisweagent.models.utils.retry import make_request_timeout, retry
 
 logger = logging.getLogger("litellm_response_model")
 
@@ -38,22 +38,33 @@ class LitellmResponseModel(LitellmModel):
         return result
 
     def _query(self, messages: list[dict[str, str]], **kwargs):
+        request_kwargs = self.config.model_kwargs | kwargs
+        request_kwargs.setdefault(
+            "timeout",
+            make_request_timeout(self.config.connect_timeout_seconds, self.config.model_timeout_seconds),
+        )
         try:
             return litellm.responses(
                 model=self.config.model_name,
                 input=messages,
-                tools=[BASH_TOOL_RESPONSE_API],
-                **(self.config.model_kwargs | kwargs),
+                tools=TOOL_DEFINITIONS_RESPONSE_API,
+                **request_kwargs,
             )
         except litellm.exceptions.AuthenticationError as e:
             e.message += " You can permanently set your API key with `mini-extra config set KEY VALUE`."
             raise e
 
     def query(self, messages: list[dict[str, str]], **kwargs) -> dict:
-        for attempt in retry(logger=logger, abort_exceptions=self.abort_exceptions):
+        request_started = time.monotonic()
+        for attempt in retry(
+            logger=logger,
+            abort_exceptions=self.abort_exceptions,
+            retry_exceptions=self.retry_exceptions(),
+            max_attempts=self.config.retry_attempts,
+        ):
             with attempt:
                 response = self._query(self._prepare_messages_for_api(messages), **kwargs)
-        cost_output = self._calculate_cost(response)
+        cost_output = self._calculate_cost(response) | {"request_elapsed_seconds": time.monotonic() - request_started}
         GLOBAL_MODEL_STATS.add(cost_output["cost"])
         try:
             actions = self._parse_actions(response)
@@ -95,4 +106,5 @@ class LitellmResponseModel(LitellmModel):
             observation_template=self.config.observation_template,
             template_vars=template_vars,
             multimodal_regex=self.config.multimodal_regex,
+            output_config=self.config.output,
         )

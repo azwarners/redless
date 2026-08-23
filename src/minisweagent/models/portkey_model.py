@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from minisweagent.exceptions import FormatError
 from minisweagent.models import GLOBAL_MODEL_STATS
 from minisweagent.models.utils.actions_toolcall import (
-    BASH_TOOL,
+    TOOL_DEFINITIONS,
     format_toolcall_observation_messages,
     parse_toolcall_actions,
 )
@@ -92,7 +92,7 @@ class PortkeyModel:
         return self.client.chat.completions.create(
             model=self.config.model_name,
             messages=messages,
-            tools=[BASH_TOOL],
+            tools=TOOL_DEFINITIONS,
             **(self.config.model_kwargs | kwargs),
         )
 

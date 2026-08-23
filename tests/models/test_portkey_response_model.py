@@ -5,7 +5,7 @@ import pytest
 
 from minisweagent.models import GLOBAL_MODEL_STATS
 from minisweagent.models.portkey_response_model import PortkeyResponseAPIModel
-from minisweagent.models.utils.actions_toolcall_response import BASH_TOOL_RESPONSE_API
+from minisweagent.models.utils.actions_toolcall_response import TOOL_DEFINITIONS_RESPONSE_API
 
 
 def test_response_api_model_basic_query():
@@ -36,7 +36,7 @@ def test_response_api_model_basic_query():
 
         assert result["extra"]["actions"] == [{"command": "echo test", "tool_call_id": "call_abc"}]
         mock_client.responses.create.assert_called_once_with(
-            model="gpt-5-mini", input=messages, tools=[BASH_TOOL_RESPONSE_API]
+            model="gpt-5-mini", input=messages, tools=TOOL_DEFINITIONS_RESPONSE_API
         )
 
 

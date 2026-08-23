@@ -1,217 +1,247 @@
-<div align="center">
-<a href="https://mini-swe-agent.com/latest/"><img src="https://github.com/SWE-agent/mini-swe-agent/raw/main/docs/assets/mini-swe-agent-banner.svg" alt="mini-swe-agent banner" style="height: 7em"/></a>
-</div>
+# mini-swe-agent-slow
 
-# The minimal AI software engineering agent
+A fork of [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent) optimized
+for slow inference: model generations may take minutes, while filesystem work,
+search, Git, builds, and tests are comparatively cheap.
 
-📣 [mini-swe-agent now powers Ramp SWE-Bench](https://labs.ramp.com/swebench)<br/>
-📣 [mini-swe-agent beats Claude Code and Codex on DeepSWE](https://deepswe.datacurve.ai/blog#evaluation-harness)<br/>
-📣 [Run mini-swe-agent on our new & extremely challenging benchmark, ProgramBench](https://mini-swe-agent.com/latest/usage/programbench/)<br/>
-📣 [New tutorial on building minimal AI agents](https://minimal-agent.com/)
+It keeps mini-SWE-agent's deliberately small agent loop, independent shell commands,
+YAML configuration, and LiteLLM model adapter. It changes the default operating style
+so that one model turn should launch substantial deterministic work instead of many
+tiny model round trips.
 
-[![Docs](https://img.shields.io/badge/Docs-green?style=for-the-badge&logo=materialformkdocs&logoColor=white)](https://mini-swe-agent.com/latest/)
-[![Slack](https://img.shields.io/badge/Slack-4A154B?style=for-the-badge&logo=slack&logoColor=white)](https://join.slack.com/t/swe-bench/shared_invite/zt-36pj9bu5s-o3_yXPZbaH2wVnxnss1EkQ)
-[![PyPI - Version](https://img.shields.io/pypi/v/mini-swe-agent?style=for-the-badge&logo=python&logoColor=white&labelColor=black&color=deeppink)](https://pypi.org/project/mini-swe-agent/)
+## Why this fork exists
 
-> [!WARNING]
-> This is **mini-swe-agent v2**. Read the [migration guide](https://mini-swe-agent.com/latest/advanced/v2_migration/). For the previous version, check out the [v1 branch](https://github.com/SWE-agent/mini-swe-agent/tree/v1).
+For a large model running locally—such as Kimi Code or MiniMax-M3 through
+llama.cpp—waiting for another generated token can cost far more than running a search
+or test suite. This fork therefore encourages grouped inspection and validation work,
+uses safer deterministic source edits, and keeps observations compact.
 
-In 2024, we built [SWE-bench](https://github.com/swe-bench/SWE-bench) & [SWE-agent](https://github.com/swe-agent/swe-agent) and helped kickstart the coding agent revolution.
+Current differences from upstream include:
 
-We now ask: **What if our agent was 100x simpler, and still worked nearly as well?**
+- `slow_local.yaml`, a profile with a slow-inference prompt and a 10-minute default
+  Bash-command timeout;
+- native `read_text`, `replace_text`, and `create_text` tools alongside Bash;
+- exact-match source replacement: zero or multiple matches leave the file unchanged;
+- per-Bash-call timeout overrides;
+- separately configured connection and model-read timeouts for LiteLLM;
+- one model attempt by default, with no automatic retry of ambiguous connection/read
+  failures;
+- deterministic head/tail output shaping while retaining raw tool output in the
+  saved trajectory; and
+- model/tool call counts, elapsed times, and LiteLLM token metrics when reported.
 
-`mini` is
+This is an experimental fork under active validation with slow local models. Kimi
+Code and MiniMax-M3 are current validation targets, not exclusive requirements.
 
-- **Widely adopted**: Used by Meta, NVIDIA, Essential AI, IBM, Nebius, Anyscale, Princeton University, Stanford University, and many more.
-- **Minimal**: Just some 100 lines of python for the [agent class](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/agents/default.py) (and a bit more for the [environment](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/environments/local.py),
-[model](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/models/litellm_model.py), and [run script](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/run/hello_world.py)) — no fancy dependencies!
-- **Performant:** Scores >74% on the [SWE-bench verified benchmark](https://www.swebench.com/); starts much faster than Claude Code
-- **Deployable:** Supports **local environments**, **docker/podman**, **singularity/apptainer**, **bublewrap**, **contree**, and more
-- **Compatible:** Supports all models via **litellm**, **openrouter**, **portkey**, and more. Support for `/completion` and `/response` endpoints, interleaved thinking etc.
-- Built by the Princeton & Stanford team behind [SWE-bench](https://swebench.com), [SWE-agent](https://swe-agent.com), and more
-- **Tested:** [![Codecov](https://img.shields.io/codecov/c/github/swe-agent/mini-swe-agent?style=flat-square)](https://codecov.io/gh/SWE-agent/mini-swe-agent)
+## Requirements
 
-<details>
+- Linux or another supported Python environment;
+- Python 3.10 or newer;
+- Git;
+- a model served through an OpenAI-compatible endpoint; and
+- for the local example below, a running llama.cpp server exposing a Chat
+  Completions-compatible endpoint such as `http://127.0.0.1:8080/v1`.
 
-<summary>More motivation (for research)</summary>
+The slow-local profile uses native function tools. Use a model/server combination
+that supports OpenAI-style tool calls for the best result.
 
-[SWE-agent](https://swe-agent.com/latest/) jump-started the development of AI agents in 2024. Back then, we placed a lot of emphasis on tools and special interfaces for the agent.
-However, one year later, as LMs have become more capable, a lot of this is not needed at all to build a useful agent!
-In fact, the `mini` agent
+## Installation
 
-- **Does not have any tools other than bash** — it doesn't even need to use the tool-calling interface of the LMs.
-  This means that you can run it with literally any model. When running in sandboxed environments you also don't need to take care
-  of installing a single package — all it needs is bash.
-- **Has a completely linear history** — every step of the agent just appends to the messages and that's it.
-  So there's no difference between the trajectory and the messages that you pass on to the LM.
-  Great for debugging & fine-tuning.
-- **Executes actions with `subprocess.run`** — every action is completely independent (as opposed to keeping a stateful shell session running).
-  This makes it trivial to execute the actions in sandboxes (literally just switch out `subprocess.run` with `docker exec`) and to
-  scale up effortlessly. Seriously, this is [a big deal](https://mini-swe-agent.com/latest/faq/#why-no-shell-session), trust me.
-
-This makes it perfect as a baseline system and for a system that puts the language model (rather than
-the agent scaffold) in the middle of our attention.
-You can see the result on the [SWE-bench (bash only)](https://www.swebench.com/) leaderboard, that evaluates the performance of different LMs with `mini`.
-
-</details>
-
-<details>
-<summary>More motivation (as a tool)</summary>
-
-Some agents are overfitted research artifacts. Others are UI-heavy frontend monsters.
-
-The `mini` agent wants to be a hackable tool, not a black box.
-
-- **Simple** enough to understand at a glance
-- **Convenient** enough to use in daily workflows
-- **Flexible** to extend
-
-Unlike other agents (including our own [swe-agent](https://swe-agent.com/latest/)), it is radically simpler, because it:
-
-- **Does not have any tools other than bash** — it doesn't even need to use the tool-calling interface of the LMs.
-  Instead of implementing custom tools for every specific thing the agent might want to do, the focus is fully on the LM utilizing the shell to its full potential.
-  Want it to do something specific like opening a PR?
-  Just tell the LM to figure it out rather than spending time to implement it in the agent.
-- **Executes actions with `subprocess.run`** — every action is completely independent (as opposed to keeping a stateful shell session running).
-  This is [a big deal](https://mini-swe-agent.com/latest/faq/#why-no-shell-session) for the stability of the agent, trust me.
-- **Has a completely linear history** — every step of the agent just appends to the messages that are passed to the LM in the next step and that's it.
-  This is great for debugging and understanding what the LM is prompted with.
-
-</details>
-
-<details>
-<summary>Should I use SWE-agent or mini-SWE-agent?</summary>
-
-You should consider `mini-swe-agent` your default choice.
-In particular, you should use `mini-swe-agent` if
-
-- You want a quick command line tool that works locally
-- You want an agent with a very simple control flow
-- You want even faster, simpler & more stable sandboxing & benchmark evaluations
-- You are doing FT or RL and don't want to overfit to a specific agent scaffold
-
-You should use `swe-agent` if
-
-- You want to experiment with different sets of tools, each with their own interface
-- You want to experiment with different history processors
-
-What you get with both
-
-- Excellent performance on SWE-Bench
-- A trajectory browser
-
-</details>
-
-<table>
-<tr>
-<td width="50%">
-<a href="https://mini-swe-agent.com/latest/usage/mini/"><strong>CLI</strong></a> (<code>mini</code>)
-</td>
-<td>
-<a href="https://mini-swe-agent.com/latest/usage/swebench/"><strong>Batch inference</strong></a>
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-![mini](https://github.com/SWE-agent/swe-agent-media/blob/main/media/mini/gif/mini.gif?raw=true)
-
-</td>
-<td>
-
-![swebench](https://github.com/SWE-agent/swe-agent-media/blob/main/media/mini/gif/swebench.gif?raw=true)
-
-</td>
-</tr>
-<tr>
-<td>
-<a href="https://mini-swe-agent.com/latest/usage/inspector/"><strong>Trajectory browser</strong></a>
-</td>
-<td>
-<a href="https://mini-swe-agent.com/latest/advanced/cookbook/"><strong>Python bindings</strong></a>
-</td>
-</tr>
-<tr>
-<td>
-
-![inspector](https://github.com/SWE-agent/swe-agent-media/blob/main/media/mini/gif/inspector.gif?raw=true)
-
-</td>
-<td>
-
-```python
-agent = DefaultAgent(
-    LitellmModel(model_name=...),
-    LocalEnvironment(),
-)
-agent.run("Write a sudoku game")
-```
-
-</td>
-</tr>
-</table>
-
-## Let's get started!
-
-**Option 1:** If you just want to try out the CLI (package installed in anonymous virtual environment)
+Install this repository from source. Do **not** use `pip install mini-swe-agent` for
+this workflow: that installs the upstream package rather than this fork.
 
 ```bash
-pip install uv && uvx mini-swe-agent
-# or
-pip install pipx && pipx ensurepath && pipx run mini-swe-agent
+git clone https://github.com/azwarners/mini-swe-agent-slow.git
+cd mini-swe-agent-slow
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[dev]'
 ```
 
-**Option 2:** Install CLI & python bindings in current environment
+Editable installation makes the `mini` command use changes in this checkout, which is
+useful while validating or developing the fork.
+
+## Verify the installation
 
 ```bash
-pip install mini-swe-agent
-mini  # run the CLI
+mini --help
+mini-extra --help
 ```
 
-**Option 3:** Install from source (developer setup)
+Run the test suite after installing the development extra:
 
 ```bash
-git clone https://github.com/SWE-agent/mini-swe-agent.git
-cd mini-swe-agent && pip install -e .
-mini  # run the CLI
+XDG_CONFIG_HOME="$(mktemp -d)" pytest -q
 ```
 
-Read more in our [documentation](https://mini-swe-agent.com/latest/):
+Some environment integrations need Docker, Singularity, Bubblewrap permissions, or
+optional provider packages. If your machine cannot run the full suite, run the core
+slow-inference coverage instead:
 
-* [Quick start guide](https://mini-swe-agent.com/latest/quickstart/)
-* [Using the `mini` CLI](https://mini-swe-agent.com/latest/usage/mini/)
-* [Global configuration](https://mini-swe-agent.com/latest/advanced/global_configuration/)
-* [Yaml configuration files](https://mini-swe-agent.com/latest/advanced/yaml_configuration/)
-* [Power up with the cookbook](https://mini-swe-agent.com/latest/advanced/cookbook/)
-* [FAQ](https://mini-swe-agent.com/latest/faq/)
-* [Contribute!](https://mini-swe-agent.com/latest/contributing/)
-
-## Attribution
-
-If you found this work helpful, please consider citing the [SWE-agent paper](https://arxiv.org/abs/2405.15793) in your work:
-
-```bibtex
-@inproceedings{yang2024sweagent,
-  title={{SWE}-agent: Agent-Computer Interfaces Enable Automated Software Engineering},
-  author={John Yang and Carlos E Jimenez and Alexander Wettig and Kilian Lieret and Shunyu Yao and Karthik R Narasimhan and Ofir Press},
-  booktitle={The Thirty-eighth Annual Conference on Neural Information Processing Systems},
-  year={2024},
-  url={https://arxiv.org/abs/2405.15793}
-}
+```bash
+XDG_CONFIG_HOME="$(mktemp -d)" pytest -q \
+  tests/tools tests/agents tests/config tests/environments/test_init.py \
+  tests/environments/test_local.py tests/models/test_actions_toolcall.py \
+  tests/models/test_content_string.py tests/models/test_retry_policy.py \
+  tests/models/test_test_models.py tests/models/test_truncation_finish_reason.py \
+  tests/utils tests/test_init.py tests/test_fire.py
 ```
 
-Our other projects:
+## Using a local llama.cpp model
 
-<div align="center">
-  <a href="https://github.com/SWE-agent/SWE-agent"><img src="https://raw.githubusercontent.com/SWE-agent/swe-agent-media/refs/heads/main/media/logos_banners/sweagent_logo_text_below.svg" alt="SWE-agent" height="120px"></a>
-   &nbsp;&nbsp;
-  <a href="https://github.com/SWE-agent/SWE-ReX"><img src="https://raw.githubusercontent.com/SWE-agent/swe-agent-media/refs/heads/main/media/logos_banners/swerex_logo_text_below.svg" alt="SWE-ReX" height="120px"></a>
-   &nbsp;&nbsp;
-  <a href="https://github.com/SWE-bench/SWE-bench"><img src="https://raw.githubusercontent.com/SWE-agent/swe-agent-media/refs/heads/main/media/logos_banners/swebench_logo_text_below.svg" alt="SWE-bench" height="120px"></a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/SWE-bench/SWE-smith"><img src="https://raw.githubusercontent.com/SWE-agent/swe-agent-media/refs/heads/main/media/logos_banners/swesmith_logo_text_below.svg" alt="SWE-smith" height="120px"></a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/codeclash-ai/codeclash"><img src="https://raw.githubusercontent.com/SWE-agent/swe-agent-media/refs/heads/main/media/logos_banners/codeclash_logo_text_below.svg" alt="CodeClash" height="120px"></a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/SWE-bench/sb-cli"><img src="https://raw.githubusercontent.com/SWE-agent/swe-agent-media/refs/heads/main/media/logos_banners/sbcli_logo_text_below.svg" alt="sb-cli" height="120px"></a>
-</div>
+Start llama.cpp separately. This README assumes its OpenAI-compatible server is at
+`http://127.0.0.1:8080/v1`; substitute your hostname, port, and server model name.
+
+Create an overlay next to the repository you want the agent to work on:
+
+```bash
+cat > llama-local.yaml <<'EOF'
+model:
+  model_name: "your-server-model-name"
+  model_kwargs:
+    custom_llm_provider: "openai"
+    api_base: "http://127.0.0.1:8080/v1"
+    api_key: "llama.cpp-placeholder"
+EOF
+```
+
+These are LiteLLM settings passed through the fork's `model_kwargs` configuration.
+`api_key` is a placeholder for clients that require one even when the local server
+does not authenticate. If your server requires authentication, replace it with its
+actual key. `model_name` must be a name the server accepts.
+
+The slow profile is the built-in `slow_local.yaml` configuration. It supplies:
+
+- `environment.timeout: 600` for normal Bash commands;
+- `model.connect_timeout_seconds: 30`;
+- `model.model_timeout_seconds: 0`, meaning no agent-imposed model read deadline;
+- `model.retry_attempts: 1`; and
+- a 6,000-character tool-observation budget.
+
+## First run
+
+This creates a disposable repository and asks the agent for a small, observable edit.
+Run it only after the llama.cpp server is accepting requests.
+
+```bash
+mkdir -p /tmp/mini-swe-agent-slow-smoke
+cd /tmp/mini-swe-agent-slow-smoke
+git init
+printf 'def greeting():\n    return "hello"\n' > greeting.py
+cat > test_greeting.py <<'EOF'
+from greeting import greeting
+
+
+def test_greeting():
+    assert greeting() == "hello"
+EOF
+```
+
+Copy `llama-local.yaml` into this directory (or use its absolute path), then run:
+
+```bash
+MSWEA_CONFIGURED=true mini \
+  -c slow_local.yaml \
+  -c llama-local.yaml \
+  -t 'Change greeting() to return "hello, slow world" and update the test. Run pytest, inspect git diff, then submit.' \
+  -o ./slow-smoke.traj.json
+```
+
+`MSWEA_CONFIGURED=true` skips the CLI's first-time hosted-provider setup wizard for
+this invocation; the two YAML files already provide the model settings. The slow
+profile uses `DefaultAgent`, so it runs without interactive command confirmation.
+The saved trajectory includes the model/tool metrics and raw tool output.
+
+To run against an existing local repository, activate the virtual environment, change
+into that repository, and use the same command with an appropriate task. Prefer a
+clean working tree or a disposable branch: the agent can modify files and run
+commands in its selected environment.
+
+## Slow-inference behavior
+
+The prompt asks the model to gather related evidence and batch safe, useful work per
+turn. Tool calls are executed sequentially in their declared order; this reduces
+model round trips without introducing concurrent command execution.
+
+Use Bash for repository search, Git, builds, tests, and shell-native operations. The
+native text tools are for deterministic text operations in the selected environment:
+
+- `read_text(path, start_line, end_line)` reads a bounded UTF-8 range (at most 200
+  lines and 12,000 characters).
+- `replace_text(path, old_text, new_text)` changes a file only when `old_text` has
+  exactly one match. Zero or multiple matches fail without modifying the file.
+- `create_text(path, content)` creates a new UTF-8 file and fails if it already
+  exists.
+
+Text operations run inside the selected environment. In container or sandbox
+environments, the helper executes in that environment's workspace rather than
+resolving container paths on the agent host. If the environment lacks Python 3 for
+the helper, the tool returns `text_tool_unavailable`; it does not fall back to host
+filesystem access or `sed`.
+
+## Configuration
+
+`src/minisweagent/config/slow_local.yaml` is the source configuration shipped with
+this fork. Once installed, use it by name with `-c slow_local.yaml`; configuration
+lookup includes the package's built-in config directory.
+
+Pass multiple `-c` arguments to merge settings. For example, the first-run command
+merges the slow profile with `llama-local.yaml`. You can also use individual command
+line overrides:
+
+```bash
+MSWEA_CONFIGURED=true mini -c slow_local.yaml -c llama-local.yaml \
+  -c environment.timeout=1200 \
+  -c model.model_timeout_seconds=0 \
+  -c model.connect_timeout_seconds=30 \
+  -c model.retry_attempts=1 \
+  -t 'Inspect this repository and describe its top-level architecture.'
+```
+
+Important slow-local settings:
+
+| Setting | Purpose |
+| --- | --- |
+| `model.model_name` | Model name accepted by the server. |
+| `model.model_kwargs.custom_llm_provider` | LiteLLM provider; use `openai` for the example llama.cpp endpoint. |
+| `model.model_kwargs.api_base` | OpenAI-compatible server base, including `/v1`. |
+| `model.model_kwargs.api_key` | Server key or a client-required placeholder. |
+| `environment.timeout` | Default Bash-command timeout in seconds. |
+| `model.connect_timeout_seconds` | Connection/pool/write timeout in seconds. |
+| `model.model_timeout_seconds` | Model read timeout; `0` leaves it unbounded. |
+| `model.retry_attempts` | Model attempts; the slow profile uses `1`. |
+| `model.output.max_chars` | Maximum shaped observation size. |
+
+## Testing
+
+The commands in [Verify the installation](#verify-the-installation) test the local
+implementation without calling a model. There is not yet a checked-in live llama.cpp
+integration test; real-model validation is currently performed against a running
+local inference server using the first-run workflow above.
+
+## Current limitations / not yet implemented
+
+The current tested core does not include:
+
+- checkpoint/resume;
+- compact live-context projection (the full linear trajectory remains the prompt
+  history and saved source of truth);
+- llama.cpp slot-aware routing or prompt-cache management;
+- repository indexing/vector retrieval; or
+- specialized DesignDiviner or ConjurePR behavior.
+
+These remain validation-driven follow-on work, not promises of current behavior.
+
+## Upstream and attribution
+
+This project is a fork of [SWE-agent/mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent).
+It retains the upstream project's small, understandable architecture while changing
+the operating assumptions for slow local inference.
+
+The repository is licensed under the [MIT License](LICENSE.md), including the
+upstream copyright notice. This fork does not claim upstream benchmark results as
+results for `mini-swe-agent-slow`.
+
+For the underlying SWE-agent work, see the upstream repository and its referenced
+[SWE-agent paper](https://arxiv.org/abs/2405.15793).

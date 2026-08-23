@@ -5,9 +5,11 @@ import pytest
 from minisweagent.exceptions import FormatError
 from minisweagent.models.utils.actions_toolcall import (
     BASH_TOOL,
+    TOOL_DEFINITIONS,
     format_toolcall_observation_messages,
     parse_toolcall_actions,
 )
+from minisweagent.models.utils.actions_toolcall_response import parse_toolcall_actions_response
 
 
 class TestParseToolcallActions:
@@ -43,6 +45,48 @@ class TestParseToolcallActions:
         tool_call.id = "call_123"
         assert parse_toolcall_actions([tool_call], format_error_template="{{ error }}") == [
             {"command": "echo hello", "tool_call_id": "call_123"}
+        ]
+
+    def test_valid_text_tool_call(self):
+        tool_call = MagicMock()
+        tool_call.function.name = "replace_text"
+        tool_call.function.arguments = '{"path":"src/a.py","old_text":"old","new_text":"new"}'
+        tool_call.id = "call_text"
+        assert parse_toolcall_actions([tool_call], format_error_template="{{ error }}") == [
+            {
+                "tool": "replace_text",
+                "path": "src/a.py",
+                "old_text": "old",
+                "new_text": "new",
+                "tool_call_id": "call_text",
+            }
+        ]
+        assert {tool["function"]["name"] for tool in TOOL_DEFINITIONS} == {
+            "bash", "replace_text", "read_text", "create_text"
+        }
+
+    def test_extra_tool_argument_is_rejected(self):
+        tool_call = MagicMock()
+        tool_call.function.name = "bash"
+        tool_call.function.arguments = '{"command":"pwd","unexpected":true}'
+        tool_call.id = "call_extra"
+        with pytest.raises(FormatError) as exc_info:
+            parse_toolcall_actions([tool_call], format_error_template="{{ error }}")
+        assert "Unexpected argument" in exc_info.value.messages[0]["content"]
+
+    def test_response_api_text_tool_call_is_normalized(self):
+        assert parse_toolcall_actions_response(
+            [
+                {
+                    "type": "function_call",
+                    "name": "read_text",
+                    "arguments": '{"path":"a.py","start_line":1,"end_line":4}',
+                    "call_id": "response_text",
+                }
+            ],
+            format_error_template="{{ error }}",
+        ) == [
+            {"tool": "read_text", "path": "a.py", "start_line": 1, "end_line": 4, "tool_call_id": "response_text"}
         ]
 
     def test_multiple_valid_tool_calls(self):

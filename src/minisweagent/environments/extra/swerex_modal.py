@@ -6,6 +6,7 @@ from swerex.deployment.modal import ModalDeployment
 from swerex.runtime.abstract import Command as RexCommand
 
 from minisweagent.exceptions import Submitted
+from minisweagent.tools.text import execute_text_in_subprocess
 from minisweagent.utils.serialize import recursive_merge
 
 
@@ -87,6 +88,9 @@ class SwerexModalEnvironment:
             }
         self._check_finished(output)
         return output
+
+    def execute_text(self, action: dict) -> dict[str, Any]:
+        return execute_text_in_subprocess(action, self.execute, cwd=self.config.cwd)
 
     def _check_finished(self, output: dict):
         """Raises Submitted if the output indicates task completion."""

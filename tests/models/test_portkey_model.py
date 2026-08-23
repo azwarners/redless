@@ -6,7 +6,7 @@ import pytest
 
 from minisweagent.models import GLOBAL_MODEL_STATS
 from minisweagent.models.portkey_model import PortkeyModel, PortkeyModelConfig
-from minisweagent.models.utils.actions_toolcall import BASH_TOOL
+from minisweagent.models.utils.actions_toolcall import TOOL_DEFINITIONS
 
 
 def test_portkey_model_missing_api_key():
@@ -83,7 +83,7 @@ def test_portkey_model_query():
 
                 # Verify the API was called correctly with tools
                 mock_client.chat.completions.create.assert_called_once_with(
-                    model="gpt-4o", messages=messages, tools=[BASH_TOOL]
+                    model="gpt-4o", messages=messages, tools=TOOL_DEFINITIONS
                 )
                 # Verify cost calculation was called
                 mock_cost.assert_called_once_with(mock_response.model_copy(), model=None)

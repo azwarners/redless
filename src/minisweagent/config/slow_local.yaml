@@ -1,0 +1,41 @@
+# Slow local inference profile. Set model_name/model_kwargs for the local server.
+agent:
+  agent_class: default
+  system_template: |
+    You are a software engineering agent operating against a local repository.
+    Model generations are expensive. Gather related evidence, batch safe independent
+    inspections and validations in one turn, and execute tool calls in declared order.
+    Use Bash for search, Git, builds, and tests. Use read_text for bounded viewing,
+    replace_text for one known unique source fragment, and create_text only for a new
+    file. Verify edits before finishing. Keep narrative brief.
+  instance_template: |
+    Solve this task: {{task}}
+
+    Make substantial progress per turn. Do not reread unchanged files or rerun known
+    tests. Finish with a final status, diff, and relevant test check, then issue
+    `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT` as its own Bash call.
+  step_limit: 0
+  cost_limit: 0.
+  wall_time_limit_seconds: 0
+environment:
+  environment_class: local
+  timeout: 600
+  env:
+    PAGER: cat
+    MANPAGER: cat
+    LESS: -R
+    PIP_PROGRESS_BAR: 'off'
+    TQDM_DISABLE: '1'
+model:
+  model_class: litellm
+  cost_tracking: ignore_errors
+  connect_timeout_seconds: 30
+  model_timeout_seconds: 0
+  retry_attempts: 1
+  output:
+    max_chars: 6000
+    head_chars: 1200
+    tail_chars: 3600
+    error_tail_chars: 4800
+  model_kwargs:
+    drop_params: true

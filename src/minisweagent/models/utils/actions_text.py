@@ -10,6 +10,7 @@ from jinja2 import StrictUndefined, Template
 
 from minisweagent.exceptions import FormatError
 from minisweagent.models.utils.openai_multimodal import expand_multimodal_content
+from minisweagent.utils.output import shape_output
 
 
 def parse_regex_actions(
@@ -46,10 +47,13 @@ def format_observation_messages(
     observation_template: str,
     template_vars: dict | None = None,
     multimodal_regex: str = "",
+    output_config: dict | None = None,
 ) -> list[dict]:
     """Format execution outputs into user observation messages."""
     results = []
     for output in outputs:
+        raw_output = output.get("output", "")
+        output = shape_output(output, **(output_config or {}))
         content = Template(observation_template, undefined=StrictUndefined).render(
             output=output, **(template_vars or {})
         )
@@ -57,10 +61,14 @@ def format_observation_messages(
             "role": "user",
             "content": content,
             "extra": {
-                "raw_output": output.get("output", ""),
+                "raw_output": raw_output,
                 "returncode": output.get("returncode"),
                 "timestamp": time.time(),
                 "exception_info": output.get("exception_info"),
+                "timeout": output.get("timeout", False),
+                "duration_seconds": output.get("duration_seconds"),
+                "truncated": output.get("truncated", False),
+                "original_chars": output.get("original_chars"),
                 **output.get("extra", {}),
             },
         }

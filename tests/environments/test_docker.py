@@ -1,5 +1,6 @@
 import os
 import subprocess
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -51,6 +52,29 @@ def test_docker_environment_config_defaults(executable):
     assert config.forward_env == []
     assert config.timeout == 30
     assert config.executable == executable
+
+
+def test_docker_text_tool_runs_in_environment_workspace(tmp_path):
+    workspace = tmp_path / "container-workspace"
+    workspace.mkdir()
+    host_path = tmp_path / "host.txt"
+
+    class TestDockerEnvironment(DockerEnvironment):
+        def __init__(self):
+            self.config = SimpleNamespace(cwd=str(workspace))
+
+        def execute(self, action, cwd="", *, timeout=None):
+            result = subprocess.run(
+                action["command"], shell=True, cwd=cwd, text=True, capture_output=True, timeout=timeout
+            )
+            return {"output": result.stdout, "returncode": result.returncode, "exception_info": result.stderr}
+
+    result = TestDockerEnvironment().execute_text(
+        {"tool": "create_text", "path": "container.txt", "content": "container only"}
+    )
+    assert result["ok"] is True
+    assert (workspace / "container.txt").read_text() == "container only"
+    assert not host_path.exists()
 
 
 @pytest.mark.slow

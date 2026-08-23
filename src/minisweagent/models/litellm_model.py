@@ -12,14 +12,14 @@ from pydantic import BaseModel
 from minisweagent.exceptions import FormatError
 from minisweagent.models import GLOBAL_MODEL_STATS
 from minisweagent.models.utils.actions_toolcall import (
-    BASH_TOOL,
+    TOOL_DEFINITIONS,
     format_toolcall_observation_messages,
     parse_toolcall_actions,
 )
 from minisweagent.models.utils.anthropic_utils import _reorder_anthropic_thinking_blocks
 from minisweagent.models.utils.cache_control import set_cache_control
 from minisweagent.models.utils.openai_multimodal import expand_multimodal_content
-from minisweagent.models.utils.retry import retry
+from minisweagent.models.utils.retry import PreRequestError, make_request_timeout, retry
 
 logger = logging.getLogger("litellm_model")
 
@@ -43,6 +43,15 @@ class LitellmModelConfig(BaseModel):
     )
     """Template used to render the observation after executing an action."""
     multimodal_regex: str = ""
+    connect_timeout_seconds: int = 30
+    model_timeout_seconds: int = 0
+    retry_attempts: int = 1
+    output: dict[str, int] = {
+        "max_chars": 6000,
+        "head_chars": 1200,
+        "tail_chars": 3600,
+        "error_tail_chars": 4800,
+    }
     """Regex to extract multimodal content. Empty string disables multimodal processing."""
 
 
@@ -56,18 +65,27 @@ class LitellmModel:
         KeyboardInterrupt,
     ]
 
+    @staticmethod
+    def retry_exceptions() -> tuple[type[Exception], ...]:
+        return (PreRequestError,)
+
     def __init__(self, *, config_class: Callable = LitellmModelConfig, **kwargs):
         self.config = config_class(**kwargs)
         if self.config.litellm_model_registry and Path(self.config.litellm_model_registry).is_file():
             litellm.utils.register_model(json.loads(Path(self.config.litellm_model_registry).read_text()))
 
     def _query(self, messages: list[dict[str, str]], **kwargs):
+        request_kwargs = self.config.model_kwargs | kwargs
+        request_kwargs.setdefault(
+            "timeout",
+            make_request_timeout(self.config.connect_timeout_seconds, self.config.model_timeout_seconds),
+        )
         try:
             return litellm.completion(
                 model=self.config.model_name,
                 messages=messages,
-                tools=[BASH_TOOL],
-                **(self.config.model_kwargs | kwargs),
+                tools=TOOL_DEFINITIONS,
+                **request_kwargs,
             )
         except litellm.exceptions.AuthenticationError as e:
             e.message += " You can permanently set your API key with `mini-extra config set KEY VALUE`."
@@ -79,10 +97,16 @@ class LitellmModel:
         return set_cache_control(prepared, mode=self.config.set_cache_control)
 
     def query(self, messages: list[dict[str, str]], **kwargs) -> dict:
-        for attempt in retry(logger=logger, abort_exceptions=self.abort_exceptions):
+        request_started = time.monotonic()
+        for attempt in retry(
+            logger=logger,
+            abort_exceptions=self.abort_exceptions,
+            retry_exceptions=self.retry_exceptions(),
+            max_attempts=self.config.retry_attempts,
+        ):
             with attempt:
                 response = self._query(self._prepare_messages_for_api(messages), **kwargs)
-        cost_output = self._calculate_cost(response)
+        cost_output = self._calculate_cost(response) | {"request_elapsed_seconds": time.monotonic() - request_started}
         GLOBAL_MODEL_STATS.add(cost_output["cost"])
         # Note: all model.query() implementations must persist the response and cost on FormatError.
         try:
@@ -123,7 +147,14 @@ class LitellmModel:
                 )
                 logger.critical(msg)
                 raise RuntimeError(msg) from e
-        return {"cost": cost}
+        usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+        usage = usage.model_dump() if hasattr(usage, "model_dump") else usage or {}
+        return {
+            "cost": cost,
+            "input_tokens": usage.get("input_tokens", usage.get("prompt_tokens")),
+            "output_tokens": usage.get("output_tokens", usage.get("completion_tokens")),
+            "total_tokens": usage.get("total_tokens"),
+        }
 
     def _parse_actions(self, response) -> list[dict]:
         """Parse tool calls from the response. Raises FormatError if unknown tool."""
@@ -148,6 +179,7 @@ class LitellmModel:
             observation_template=self.config.observation_template,
             template_vars=template_vars,
             multimodal_regex=self.config.multimodal_regex,
+            output_config=self.config.output,
         )
 
     def get_template_vars(self, **kwargs) -> dict[str, Any]:

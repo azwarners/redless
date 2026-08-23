@@ -46,6 +46,9 @@ class DefaultAgent:
         self.logger = logging.getLogger("agent")
         self.cost = 0.0
         self.n_calls = 0
+        self.n_tool_calls = 0
+        self.model_elapsed_seconds = 0.0
+        self.tool_elapsed_seconds = 0.0
         self.n_consecutive_format_errors = 0
         self._start_time = time.time()
 
@@ -58,6 +61,9 @@ class DefaultAgent:
                 "n_model_calls": self.n_calls,
                 "model_cost": self.cost,
                 "elapsed_seconds": int(time.time() - self._start_time),
+                "model_elapsed_seconds": self.model_elapsed_seconds,
+                "tool_elapsed_seconds": self.tool_elapsed_seconds,
+                "n_tool_calls": self.n_tool_calls,
             },
             self.extra_template_vars,
             kwargs,
@@ -146,14 +152,30 @@ class DefaultAgent:
                 }
             )
         self.n_calls += 1
-        message = self.model.query(self.messages)
+        started = time.monotonic()
+        try:
+            message = self.model.query(self.messages)
+        finally:
+            self.model_elapsed_seconds += time.monotonic() - started
         self.cost += message.get("extra", {}).get("cost", 0.0)
         self.add_messages(message)
         return message
 
     def execute_actions(self, message: dict) -> list[dict]:
         """Execute actions in message, add observation messages, return them."""
-        outputs = [self.env.execute(action) for action in message.get("extra", {}).get("actions", [])]
+        outputs = []
+        for action in message.get("extra", {}).get("actions", []):
+            started = time.monotonic()
+            if action.get("tool", "bash") == "bash":
+                output = self.env.execute(action, timeout=action.get("timeout_seconds"))
+            else:
+                output = self.env.execute_text(action)
+            output["duration_seconds"] = time.monotonic() - started
+            if output.get("extra", {}).get("exception_type") == "TimeoutExpired":
+                output["timeout"] = True
+            outputs.append(output)
+            self.tool_elapsed_seconds += output["duration_seconds"]
+            self.n_tool_calls += 1
         return self.add_messages(*self.model.format_observation_messages(message, outputs, self.get_template_vars()))
 
     def serialize(self, *extra_dicts) -> dict:
@@ -165,6 +187,9 @@ class DefaultAgent:
                 "model_stats": {
                     "instance_cost": self.cost,
                     "api_calls": self.n_calls,
+                    "tool_calls": self.n_tool_calls,
+                    "model_elapsed_seconds": self.model_elapsed_seconds,
+                    "tool_elapsed_seconds": self.tool_elapsed_seconds,
                 },
                 "config": {
                     "agent": self.config.model_dump(mode="json"),

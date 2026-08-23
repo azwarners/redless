@@ -385,6 +385,67 @@ def test_step_adds_messages(model_factory):
     assert "returncode" in get_observation_text(agent.messages[-1])
 
 
+def test_bash_timeout_override_is_forwarded(model_factory):
+    factory, config = model_factory
+    if factory is not make_tc_model:
+        pytest.skip("timeout tool argument is covered by the native tool-call path")
+
+    class CaptureEnvironment:
+        config = type("Config", (), {"cwd": ""})()
+
+        def __init__(self):
+            self.calls = []
+
+        def execute(self, action, cwd="", *, timeout=None):
+            self.calls.append((action, timeout))
+            return {"output": "ok", "returncode": 0, "exception_info": ""}
+
+        def get_template_vars(self, **kwargs):
+            return kwargs
+
+        def serialize(self):
+            return {}
+
+    tool_call = {
+        "id": "call_timeout",
+        "type": "function",
+        "function": {"name": "bash", "arguments": '{"command":"pytest","timeout_seconds":123}'},
+    }
+    output = make_toolcall_output("run", [tool_call], [{"command": "pytest", "timeout_seconds": 123, "tool_call_id": "call_timeout"}])
+    env = CaptureEnvironment()
+    agent = DefaultAgent(model=factory([("unused", [])]), env=env, **config)
+    agent.model.config.outputs = [output]
+    agent.add_messages({"role": "system", "content": "system"}, {"role": "user", "content": "task"})
+    agent.step()
+    assert env.calls == [({"command": "pytest", "timeout_seconds": 123, "tool_call_id": "call_timeout"}, 123)]
+
+
+def test_failed_model_call_still_records_elapsed_time(default_config):
+    class FailingModel:
+        config = type("Config", (), {})()
+
+        def query(self, messages):
+            raise RuntimeError("model failed")
+
+        def format_message(self, **kwargs):
+            return kwargs
+
+        def format_observation_messages(self, message, outputs, template_vars=None):
+            return []
+
+        def get_template_vars(self, **kwargs):
+            return {}
+
+        def serialize(self):
+            return {}
+
+    agent = DefaultAgent(model=FailingModel(), env=LocalEnvironment(), **default_config)
+    agent.add_messages({"role": "system", "content": "system"}, {"role": "user", "content": "task"})
+    with pytest.raises(RuntimeError):
+        agent.query()
+    assert agent.model_elapsed_seconds > 0
+
+
 def test_observations_captured(model_factory):
     """Test intermediate outputs are captured correctly."""
     factory, config = model_factory
