@@ -254,3 +254,6 @@ results for `mini-swe-agent-slow`.
 
 For the underlying SWE-agent work, see the upstream repository and its referenced
 [SWE-agent paper](https://arxiv.org/abs/2405.15793).
+
+The idea of adding text editing to mini-swe-agent to reduce the potential for error came from mini-swe-agent-plus
+https://github.com/Kwai-Klear/mini-swe-agent-plus .
