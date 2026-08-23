@@ -28,3 +28,15 @@ def test_init_refuses_an_existing_directory(tmp_path):
 
     assert result.exit_code != 0
     assert "Workspace already exists" in result.output
+
+
+def test_clone_creates_a_configured_workspace(tmp_path):
+    source = tmp_path / "source"
+    destination = tmp_path / "nested" / "workspace"
+    subprocess.run(["git", "init", "-q", source], check=True)
+
+    result = CliRunner().invoke(app, ["clone", str(source), str(destination), "--model", "local-model"])
+
+    assert result.exit_code == 0
+    assert subprocess.check_output(["git", "-C", destination, "remote", "get-url", "origin"], text=True).strip() == str(source)
+    assert (destination / ".mini-swe-agent-slow" / "llama-local.yaml").is_file()

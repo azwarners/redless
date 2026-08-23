@@ -16,18 +16,7 @@ def main():
     """Set up a disposable workspace for mini-swe-agent-slow."""
 
 
-@app.command()
-def init(
-    path: Path = typer.Argument(..., help="New workspace directory"),
-    model: str = typer.Option(..., "--model", help="Model name accepted by the local server"),
-    api_base: str = typer.Option("http://127.0.0.1:8080/v1", "--api-base", help="OpenAI-compatible server URL"),
-    api_key: str = typer.Option("llama.cpp-placeholder", "--api-key", help="Server API key, if required"),
-):
-    """Create a new Git workspace and local-model settings file."""
-    if path.exists():
-        raise typer.BadParameter(f"Workspace already exists: {path}")
-    path.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q", str(path)], check=True)
+def _configure_workspace(path: Path, model: str, api_base: str, api_key: str):
     settings_path = path / ".mini-swe-agent-slow" / "llama-local.yaml"
     settings_path.parent.mkdir()
     settings_path.write_text(
@@ -49,6 +38,37 @@ def init(
         f"cd {path}\nMSWEA_CONFIGURED=true mini-slow -c slow_local.yaml "
         "-c .mini-swe-agent-slow/llama-local.yaml -t 'Describe the task here.'"
     )
+
+
+@app.command()
+def init(
+    path: Path = typer.Argument(..., help="New workspace directory"),
+    model: str = typer.Option(..., "--model", help="Model name accepted by the local server"),
+    api_base: str = typer.Option("http://127.0.0.1:8080/v1", "--api-base", help="OpenAI-compatible server URL"),
+    api_key: str = typer.Option("llama.cpp-placeholder", "--api-key", help="Server API key, if required"),
+):
+    """Create a new Git workspace and local-model settings file."""
+    if path.exists():
+        raise typer.BadParameter(f"Workspace already exists: {path}")
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    _configure_workspace(path, model, api_base, api_key)
+
+
+@app.command()
+def clone(
+    repository: str = typer.Argument(..., help="Repository URL or local path"),
+    path: Path = typer.Argument(..., help="New workspace directory"),
+    model: str = typer.Option(..., "--model", help="Model name accepted by the local server"),
+    api_base: str = typer.Option("http://127.0.0.1:8080/v1", "--api-base", help="OpenAI-compatible server URL"),
+    api_key: str = typer.Option("llama.cpp-placeholder", "--api-key", help="Server API key, if required"),
+):
+    """Clone a repository and add local-model settings."""
+    if path.exists():
+        raise typer.BadParameter(f"Workspace already exists: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "clone", repository, str(path)], check=True)
+    _configure_workspace(path, model, api_base, api_key)
 
 
 if __name__ == "__main__":

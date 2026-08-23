@@ -50,8 +50,16 @@ the agent to inspect the repository you are currently in.
 
 ### 1. Create a workspace
 
-For an existing project, use a clean Git branch or disposable copy. For a new task,
-create a safe workspace with one command:
+For an existing project, clone it and add your local-model settings with one command:
+
+```bash
+mini-slow-workspace clone https://github.com/OWNER/REPOSITORY.git \
+  ~/mini-workspaces/project \
+  --model YOUR_MODEL_NAME \
+  --api-base http://127.0.0.1:8080/v1
+```
+
+For a new task, create a safe empty workspace instead:
 
 ```bash
 mini-slow-workspace init ~/mini-workspaces/first-task \
