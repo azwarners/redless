@@ -60,6 +60,26 @@ class LlamaCppModel:
         timestamp = time.strftime("%H:%M:%S")
         print(f"[{timestamp}] [mini-swe-agent-slow] {message}", file=sys.stderr, flush=True)
 
+    @staticmethod
+    def _print_stream_prefix(label: str) -> None:
+        timestamp = time.strftime("%H:%M:%S")
+        print(f"[{timestamp}] [mini-swe-agent-slow] {label}: ", file=sys.stderr, end="", flush=True)
+
+    @classmethod
+    def _stream_text(cls, label: str, text: str, state: dict[str, Any]) -> None:
+        """Print streamed text with timestamps on every physical output line."""
+        if not text:
+            return
+        for part in text.splitlines(keepends=True):
+            if not state.get("open") or state.get("label") != label:
+                if state.get("open"):
+                    print(file=sys.stderr, flush=True)
+                cls._print_stream_prefix(label)
+                state.update(open=True, label=label)
+            print(part, file=sys.stderr, end="", flush=True)
+            if part.endswith(("\n", "\r")):
+                state["open"] = False
+
     def query(self, messages: list[dict[str, str]], **kwargs) -> dict:
         started = time.monotonic()
         request = {
@@ -83,7 +103,7 @@ class LlamaCppModel:
         content: list[str] = []
         calls: dict[int, _ToolCall] = {}
         usage: dict[str, Any] = {}
-        self._print("Model draft: ") if self.config.response_streaming == "draft" else None
+        stream_state: dict[str, Any] = {"open": False, "label": ""}
         for raw_line in response.iter_lines(decode_unicode=True):
             if not raw_line or not raw_line.startswith("data:"):
                 continue
@@ -98,7 +118,15 @@ class LlamaCppModel:
                 if text:
                     content.append(text)
                     if self.config.response_streaming == "draft":
-                        print(text, file=sys.stderr, end="", flush=True)
+                        self._stream_text("Model draft", text, stream_state)
+                reasoning = (
+                    delta.get("reasoning_content")
+                    or delta.get("reasoning")
+                    or delta.get("thinking")
+                    or ""
+                )
+                if reasoning and self.config.response_streaming == "draft":
+                    self._stream_text("Model reasoning", reasoning, stream_state)
                 for tool in delta.get("tool_calls") or []:
                     index = int(tool.get("index", 0))
                     call = calls.setdefault(index, _ToolCall(tool.get("id", f"call_{index}"), _Function()))
@@ -107,7 +135,8 @@ class LlamaCppModel:
                     call.function.name += function.get("name") or ""
                     call.function.arguments += function.get("arguments") or ""
         if self.config.response_streaming == "draft":
-            print(file=sys.stderr, flush=True)
+            if stream_state.get("open"):
+                print(file=sys.stderr, flush=True)
         tool_calls = [calls[index] for index in sorted(calls)]
         if tool_calls and self.config.response_streaming == "draft" and content:
             self._print("Model requested tools; draft text is not the final result.")

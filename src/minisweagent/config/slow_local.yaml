@@ -31,13 +31,13 @@ agent:
     extra tool call merely to announce completion.
   instance_template: |
     {{task}}
-  step_limit: 0
+  # Safety ceiling: no task may issue more than 42 model calls.
+  step_limit: 42
   cost_limit: 0.
   wall_time_limit_seconds: 0
   show_progress: true
-  # A pending request is normal on CPU models. Print an honest liveness update
-  # every minute; 0 disables these updates.
-  progress_interval_seconds: 60
+  # Retained for config compatibility; pending-request lines are disabled.
+  progress_interval_seconds: 0
   # Warn once after sustained model use; warnings never alter control flow.
   call_warning_threshold: 8
   model_time_warning_seconds: 1800

@@ -5,7 +5,6 @@ or https://minimal-agent.com for a tutorial on the basic building principles.
 import json
 import logging
 import sys
-import threading
 import time
 import traceback
 from pathlib import Path
@@ -51,6 +50,8 @@ class AgentConfig(BaseModel):
 
 
 class DefaultAgent:
+    HARD_MODEL_CALL_LIMIT = 42
+
     def __init__(self, model: Model, env: Environment, *, config_class: type = AgentConfig, **kwargs):
         """See the `AgentConfig` class for permitted keyword arguments."""
         self.config = config_class(**kwargs)
@@ -198,9 +199,35 @@ class DefaultAgent:
         self.messages.extend(messages)
         return list(messages)
 
-    def _progress(self, message: str) -> None:
+    def _progress(self, message: str, *, end: str = "\n") -> None:
         if self.config.show_progress:
-            print(f"[{time.strftime('%H:%M:%S')}] [mini-swe-agent-slow] {message}", file=sys.stderr, flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] [mini-swe-agent-slow] {message}", file=sys.stderr, end=end, flush=True)
+
+    def _progress_append(self, message: str) -> None:
+        if self.config.show_progress:
+            print(message, file=sys.stderr, end="", flush=True)
+
+    @staticmethod
+    def _action_description(action: dict, output: dict) -> str:
+        tool = action.get("tool", "bash")
+        if tool == "bash":
+            detail = f"command: {action.get('command', '')}"
+        elif tool == "read_text":
+            detail = (
+                f"file: {action.get('path', '')}"
+                f" (lines {action.get('start_line')}-{action.get('end_line')})"
+            )
+        elif tool == "replace_text":
+            detail = (
+                f"file: {action.get('path', '')}; replaced "
+                f"{len(action.get('old_text', ''))} chars with {len(action.get('new_text', ''))} chars"
+            )
+        elif tool == "create_text":
+            detail = f"file: {action.get('path', '')}; created {len(action.get('content', ''))} chars"
+        else:
+            detail = str(action)
+        detail = " ".join(detail.split())
+        return f"Action description: {detail}"[:240]
 
     def _warn_if_threshold_crossed(self) -> None:
         if self._operator_warning_emitted:
@@ -224,12 +251,6 @@ class DefaultAgent:
             flush=True,
         )
         self._operator_warning_emitted = True
-
-    def _report_pending_model_request(self, done: threading.Event, call: int, started: float) -> None:
-        while not done.wait(self.config.progress_interval_seconds):
-            self._progress(
-                f"Model request still pending (call {call}; {time.monotonic() - started:.0f}s elapsed)."
-            )
 
     def handle_uncaught_exception(self, e: Exception) -> list[dict]:
         return self.add_messages(
@@ -300,7 +321,9 @@ class DefaultAgent:
 
     def query(self) -> dict:
         """Query the model and return model messages. Override to add hooks."""
-        if 0 < self.config.step_limit <= self.n_calls or 0 < self.config.cost_limit <= self.cost:
+        configured_limit = self.config.step_limit if self.config.step_limit > 0 else self.HARD_MODEL_CALL_LIMIT
+        effective_limit = min(configured_limit, self.HARD_MODEL_CALL_LIMIT)
+        if self.n_calls >= effective_limit or 0 < self.config.cost_limit <= self.cost:
             raise LimitsExceeded(
                 {
                     "role": "exit",
@@ -319,21 +342,9 @@ class DefaultAgent:
         self.n_calls += 1
         self._progress(f"Waiting for model response (call {self.n_calls})…")
         started = time.monotonic()
-        done = threading.Event()
-        reporter = None
-        if self.config.show_progress and self.config.progress_interval_seconds > 0:
-            reporter = threading.Thread(
-                target=self._report_pending_model_request,
-                args=(done, self.n_calls, started),
-                daemon=True,
-            )
-            reporter.start()
         try:
             message = self.model.query(self._messages_for_model())
         finally:
-            done.set()
-            if reporter:
-                reporter.join()
             self.model_elapsed_seconds += time.monotonic() - started
         self.cost += message.get("extra", {}).get("cost", 0.0)
         self.add_messages(message)
@@ -346,7 +357,7 @@ class DefaultAgent:
         outputs = []
         actions = message.get("extra", {}).get("actions", [])
         for index, action in enumerate(actions, start=1):
-            self._progress(f"Running {action.get('tool', 'bash')} action {index}/{len(actions)}…")
+            self._progress(f"Running {action.get('tool', 'bash')} action {index}/{len(actions)}…", end="")
             started = time.monotonic()
             if action.get("tool", "bash") == "bash":
                 output = self.env.execute(action, timeout=action.get("timeout_seconds"))
@@ -359,7 +370,8 @@ class DefaultAgent:
             self._record_ledger_entry(action, output)
             self.tool_elapsed_seconds += output["duration_seconds"]
             self.n_tool_calls += 1
-            self._progress(f"Action {index}/{len(actions)} finished in {output['duration_seconds']:.1f}s.")
+            self._progress_append(f" Action {index}/{len(actions)} finished in {output['duration_seconds']:.1f}s.\n")
+            self._progress(self._action_description(action, output))
         return self.add_messages(*self.model.format_observation_messages(message, outputs, self.get_template_vars()))
 
     def serialize(self, *extra_dicts) -> dict:

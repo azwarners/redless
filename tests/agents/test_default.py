@@ -183,7 +183,7 @@ def test_slow_local_progress_reports_model_and_completion(toolcall_config, capsy
     assert "Final response received; printing result." in stderr
 
 
-def test_progress_reports_pending_model_request(toolcall_config, capsys):
+def test_progress_does_not_report_pending_model_request(toolcall_config, capsys):
     class SlowModel(DeterministicToolcallModel):
         def query(self, messages: list[dict]) -> dict:
             time.sleep(0.03)
@@ -198,7 +198,7 @@ def test_progress_reports_pending_model_request(toolcall_config, capsys):
         **{**toolcall_config, "show_progress": True, "progress_interval_seconds": 0.01},
     ).run("Finish")
 
-    assert "Model request still pending (call 1" in capsys.readouterr().err
+    assert "Model request still pending" not in capsys.readouterr().err
 
 
 def test_progress_interval_zero_disables_pending_reports(toolcall_config, capsys):
@@ -351,6 +351,24 @@ def test_step_limit_enforcement(model_factory):
     info = agent.run("Run multiple commands")
     assert info["exit_status"] == "LimitsExceeded"
     assert agent.n_calls == 1
+
+
+def test_fork_hard_model_call_limit_applies_when_unconfigured(toolcall_config):
+    output = make_toolcall_output(
+        "Continuing",
+        [{"id": "call", "type": "function", "function": {"name": "bash", "arguments": '{"command":"true"}'}}],
+        [{"command": "true", "tool_call_id": "call"}],
+    )
+    agent = DefaultAgent(
+        model=DeterministicToolcallModel(outputs=[output.copy() for _ in range(43)]),
+        env=LocalEnvironment(),
+        **{**toolcall_config, "step_limit": 0, "cost_limit": 0},
+    )
+
+    info = agent.run("Keep going")
+
+    assert info["exit_status"] == "LimitsExceeded"
+    assert agent.n_calls == DefaultAgent.HARD_MODEL_CALL_LIMIT
 
 
 def test_cost_limit_enforcement(model_factory):

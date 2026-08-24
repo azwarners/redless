@@ -78,3 +78,17 @@ def test_llama_cpp_reconstructs_final_text_without_tool_call(monkeypatch):
     result = model.query([{"role": "user", "content": "task"}])
     assert result["extra"]["is_final"] is True
     assert result["extra"]["final_text"] == "final answer"
+
+
+def test_llama_cpp_displays_reasoning_deltas_without_adding_them_to_content(monkeypatch, capsys):
+    chunks = [
+        {"choices": [{"delta": {"reasoning_content": "Think first. "}}]},
+        {"choices": [{"delta": {"content": "final"}}]},
+    ]
+    monkeypatch.setattr("minisweagent.models.llama_cpp_model.requests.post", lambda *a, **k: Response(chunks))
+    model = LlamaCppModel(model_name="local", model_kwargs={"api_base": "http://server/v1"})
+    result = model.query([{"role": "user", "content": "task"}])
+    stderr = capsys.readouterr().err
+    assert "Model reasoning: Think first." in stderr
+    assert "Model draft: final" in stderr
+    assert result["content"] == "final"
