@@ -174,6 +174,34 @@ class TestLitellmModel:
         assert result[0]["extra"]["raw_output"].endswith("-end")
         assert result[0]["extra"]["truncated"] is True
 
+    def test_turn_budget_counts_rendered_observations_and_keeps_all_tool_ids(self):
+        model = LitellmModel(
+            model_name="gpt-4",
+            observation_template="<returncode>{{ output.returncode }}</returncode>{{ output.output }}",
+            tool_output={
+                "max_chars": 6000,
+                "head_chars": 1200,
+                "tail_chars": 3600,
+                "error_tail_chars": 4800,
+                "max_turn_chars": 1000,
+                "minimum_chars_per_observation": 64,
+            },
+        )
+        actions = [{"command": "echo", "tool_call_id": f"call_{index}"} for index in range(4)]
+        raw_outputs = [
+            {"output": "success-" * 500, "returncode": 0},
+            {"output": "compiler noise\n" * 500 + "FAILURE TAIL", "returncode": 1},
+            {"output": "success-" * 500, "returncode": 0},
+            {"output": "success-" * 500, "returncode": 0},
+        ]
+        result = model.format_observation_messages({"extra": {"actions": actions}}, raw_outputs)
+
+        assert [message["tool_call_id"] for message in result] == [f"call_{index}" for index in range(4)]
+        assert sum(len(message["content"]) for message in result) <= 1000
+        assert "FAILURE TAIL" in result[1]["content"]
+        assert result[1]["extra"]["raw_output"].endswith("FAILURE TAIL")
+        assert all(message["extra"]["turn_budget"] == 1000 for message in result)
+
     def test_format_observation_messages_no_actions(self):
         model = LitellmModel(model_name="gpt-4")
         result = model.format_observation_messages({"extra": {}}, [])

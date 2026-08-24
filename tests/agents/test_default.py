@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 import pytest
@@ -179,7 +180,158 @@ def test_slow_local_progress_reports_model_and_completion(toolcall_config, capsy
 
     stderr = capsys.readouterr().err
     assert "Waiting for model response (call 1)" in stderr
-    assert "Task complete." in stderr
+    assert "Final response received; printing result." in stderr
+
+
+def test_progress_reports_pending_model_request(toolcall_config, capsys):
+    class SlowModel(DeterministicToolcallModel):
+        def query(self, messages: list[dict]) -> dict:
+            time.sleep(0.03)
+            return super().query(messages)
+
+    output = make_toolcall_output("Done.", [], [])
+    output["extra"]["is_final"] = True
+    output["extra"]["final_text"] = "Done."
+    DefaultAgent(
+        model=SlowModel(outputs=[output]),
+        env=LocalEnvironment(),
+        **{**toolcall_config, "show_progress": True, "progress_interval_seconds": 0.01},
+    ).run("Finish")
+
+    assert "Model request still pending (call 1" in capsys.readouterr().err
+
+
+def test_progress_interval_zero_disables_pending_reports(toolcall_config, capsys):
+    class SlowModel(DeterministicToolcallModel):
+        def query(self, messages: list[dict]) -> dict:
+            time.sleep(0.03)
+            return super().query(messages)
+
+    output = make_toolcall_output("Done.", [], [])
+    output["extra"]["is_final"] = True
+    output["extra"]["final_text"] = "Done."
+    agent = DefaultAgent(
+        model=SlowModel(outputs=[output]),
+        env=LocalEnvironment(),
+        **{**toolcall_config, "show_progress": True, "progress_interval_seconds": 0},
+    )
+
+    agent.run("Finish")
+
+    stderr = capsys.readouterr().err
+    assert "Waiting for model response (call 1)" in stderr
+    assert "Model request still pending" not in stderr
+    assert "Final response received; printing result." in stderr
+
+
+def test_operator_warning_is_emitted_once_without_changing_result(toolcall_config, tmp_path, capsys):
+    first = make_toolcall_output("Inspecting.", [{"id": "call_0", "type": "function", "function": {"name": "bash", "arguments": '{"command":"true"}'}}], [{"command": "true", "tool_call_id": "call_0"}])
+    final = make_toolcall_output("Done.", [], [])
+    final["extra"]["is_final"] = True
+    final["extra"]["final_text"] = "Done."
+    output_path = tmp_path / "warning.traj.json"
+    agent = DefaultAgent(
+        model=DeterministicToolcallModel(outputs=[first, final]),
+        env=LocalEnvironment(),
+        **{
+            **toolcall_config,
+            "show_progress": False,
+            "call_warning_threshold": 1,
+            "model_time_warning_seconds": 0,
+            "output_path": output_path,
+        },
+    )
+
+    info = agent.run("Finish")
+
+    stderr = capsys.readouterr().err
+    assert stderr.count("WARNING:") == 1
+    assert "calls=1" in stderr
+    assert "cumulative_model_time=" in stderr
+    assert str(output_path) in stderr
+    assert "not an error" in stderr
+    assert agent.n_calls == 2
+    assert info == {"exit_status": "Submitted", "submission": "Done."}
+
+
+def test_operator_warnings_are_disabled_when_both_thresholds_are_zero(toolcall_config, capsys):
+    output = make_toolcall_output("Done.", [], [])
+    output["extra"]["is_final"] = True
+    output["extra"]["final_text"] = "Done."
+    agent = DefaultAgent(
+        model=DeterministicToolcallModel(outputs=[output]),
+        env=LocalEnvironment(),
+        **{
+            **toolcall_config,
+            "show_progress": False,
+            "call_warning_threshold": 0,
+            "model_time_warning_seconds": 0,
+        },
+    )
+
+    info = agent.run("Finish")
+
+    assert "WARNING:" not in capsys.readouterr().err
+    assert agent.n_calls == 1
+    assert info == {"exit_status": "Submitted", "submission": "Done."}
+
+
+def test_projected_context_preserves_full_trajectory_and_adds_ledger(toolcall_config):
+    class CapturingModel(DeterministicToolcallModel):
+        def __init__(self, outputs):
+            super().__init__(outputs=outputs)
+            self.seen_messages = []
+
+        def query(self, messages: list[dict]) -> dict:
+            self.seen_messages.append(messages)
+            return super().query(messages)
+
+    first = make_toolcall_output(
+        "Inspecting.",
+        [{"id": "call_0", "type": "function", "function": {"name": "bash", "arguments": '{"command":"false"}'}}],
+        [{"command": "false", "tool_call_id": "call_0"}],
+    )
+    final = make_toolcall_output("Done.", [], [])
+    final["extra"]["is_final"] = True
+    final["extra"]["final_text"] = "Done."
+    model = CapturingModel([first, final])
+    agent = DefaultAgent(
+        model=model,
+        env=LocalEnvironment(),
+        **{**toolcall_config, "context_mode": "projected", "projected_context_max_chars": 4000},
+    )
+
+    info = agent.run("Review the repository")
+
+    projected = model.seen_messages[1]
+    assert projected[0] == agent.messages[0]
+    assert projected[1] == agent.messages[1]
+    assert "Deterministic working ledger" in projected[2]["content"]
+    assert "failure" in projected[2]["content"]
+    assert len(agent.messages) > len(projected)
+    assert agent.live_context_ledger[0]["kind"] == "failure"
+    assert info == {"exit_status": "Submitted", "submission": "Done."}
+
+
+def test_full_context_passes_original_messages_unchanged(toolcall_config):
+    class CapturingModel(DeterministicToolcallModel):
+        def __init__(self, outputs):
+            super().__init__(outputs=outputs)
+            self.seen_messages = []
+
+        def query(self, messages: list[dict]) -> dict:
+            self.seen_messages.append(messages)
+            return super().query(messages)
+
+    output = make_toolcall_output("Done.", [], [])
+    output["extra"]["is_final"] = True
+    output["extra"]["final_text"] = "Done."
+    model = CapturingModel([output])
+    agent = DefaultAgent(model=model, env=LocalEnvironment(), **toolcall_config)
+
+    agent.run("Finish")
+
+    assert model.seen_messages[0] is agent.messages
 
 
 def test_step_limit_enforcement(model_factory):

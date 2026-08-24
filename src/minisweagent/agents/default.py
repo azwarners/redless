@@ -5,12 +5,14 @@ or https://minimal-agent.com for a tutorial on the basic building principles.
 import json
 import logging
 import sys
+import threading
 import time
 import traceback
 from pathlib import Path
+from typing import Literal
 
 from jinja2 import StrictUndefined, Template
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from minisweagent import FORK_NAME, UPSTREAM_VERSION, Environment, Model, __version__
 from minisweagent.exceptions import FormatError, InterruptAgentFlow, LimitsExceeded, Submitted, TimeExceeded
@@ -36,6 +38,16 @@ class AgentConfig(BaseModel):
     """Save the trajectory to this path."""
     show_progress: bool = False
     """Print concise model and tool progress to stderr."""
+    progress_interval_seconds: float = 60.0
+    """Repeat pending-model status after this interval. Set 0 to disable it."""
+    call_warning_threshold: int = 0
+    """Warn once after this many successful model calls. Set 0 to disable it."""
+    model_time_warning_seconds: float = 0.0
+    """Warn once after this much cumulative model time. Set 0 to disable it."""
+    context_mode: Literal["full", "projected"] = "full"
+    """Choose the full trajectory or a deterministic temporary model context."""
+    projected_context_max_chars: int = Field(default=24000, ge=4000)
+    """Maximum projected context size. The full trajectory is always preserved."""
 
 
 class DefaultAgent:
@@ -53,6 +65,8 @@ class DefaultAgent:
         self.model_elapsed_seconds = 0.0
         self.tool_elapsed_seconds = 0.0
         self.n_consecutive_format_errors = 0
+        self._operator_warning_emitted = False
+        self.live_context_ledger: list[dict] = []
         self._start_time = time.time()
 
     def get_template_vars(self, **kwargs) -> dict:
@@ -75,6 +89,110 @@ class DefaultAgent:
     def _render_template(self, template: str) -> str:
         return Template(template, undefined=StrictUndefined).render(**self.get_template_vars())
 
+    @staticmethod
+    def _message_chars(message: dict) -> int:
+        return len(json.dumps(message, sort_keys=True, default=str))
+
+    @staticmethod
+    def _is_assistant_message(message: dict) -> bool:
+        return message.get("role") == "assistant" or message.get("object") == "response"
+
+    def _working_ledger_message(self) -> dict:
+        return self.model.format_message(
+            role="user",
+            content="Deterministic working ledger\n" + json.dumps(self.live_context_ledger, indent=2, sort_keys=True),
+        )
+
+    def _message_cycles(self) -> list[list[dict]]:
+        cycles: list[list[dict]] = []
+        current: list[dict] = []
+        for message in self.messages[2:]:
+            if self._is_assistant_message(message) and current:
+                cycles.append(current)
+                current = []
+            current.append(message)
+        if current:
+            cycles.append(current)
+        return cycles
+
+    def _compact_cycle(self, cycle: list[dict], budget: int) -> list[dict]:
+        if not cycle:
+            return []
+        result = [cycle[0]]
+        remaining = max(0, budget - self._message_chars(cycle[0]))
+        for message in cycle[1:]:
+            if self._message_chars(message) <= remaining:
+                result.append(message)
+                remaining -= self._message_chars(message)
+                continue
+            compact = dict(message)
+            content = compact.get("content", compact.get("output", ""))
+            if isinstance(content, str):
+                compact_content = content[-max(0, remaining) :]
+                if "content" in compact:
+                    compact["content"] = "[older content omitted from projected context]\n" + compact_content
+                else:
+                    compact["output"] = "[older content omitted from projected context]\n" + compact_content
+            result.append(compact)
+        return result
+
+    def _messages_for_model(self) -> list[dict]:
+        if self.config.context_mode == "full" or len(self.messages) <= 2:
+            return self.messages
+        ledger = self._working_ledger_message()
+        projected = [*self.messages[:2], ledger]
+        budget = self.config.projected_context_max_chars
+        used = sum(self._message_chars(message) for message in projected)
+        for cycle in reversed(self._message_cycles()):
+            cycle_chars = sum(self._message_chars(message) for message in cycle)
+            if used + cycle_chars <= budget:
+                projected[3:3] = cycle
+                used += cycle_chars
+            elif len(projected) == 3:
+                projected.extend(self._compact_cycle(cycle, max(0, budget - used)))
+                break
+        return projected
+
+    def _record_ledger_entry(self, action: dict, output: dict) -> None:
+        tool = action.get("tool", "bash")
+        returncode = output.get("returncode")
+        exception_type = output.get("extra", {}).get("exception_type")
+        failed = returncode not in (0, None) or bool(exception_type) or output.get("timeout", False)
+        if failed:
+            raw = output.get("output", "") or ""
+            self.live_context_ledger.append(
+                {
+                    "kind": "failure",
+                    "tool": tool,
+                    "returncode": returncode,
+                    "exception_type": exception_type,
+                    "timeout": output.get("timeout", False),
+                    "error_tail": raw[-480:],
+                }
+            )
+            return
+        if tool == "bash":
+            lines = [line.strip() for line in (output.get("output", "") or "").splitlines() if line.strip()]
+            self.live_context_ledger.append(
+                {
+                    "kind": "bash",
+                    "command": action.get("command", ""),
+                    "returncode": returncode,
+                    "status": lines[-1] if lines else "completed",
+                }
+            )
+        elif tool == "read_text":
+            self.live_context_ledger.append(
+                {
+                    "kind": "text_read",
+                    "path": action.get("path", ""),
+                    "start_line": action.get("start_line"),
+                    "end_line": action.get("end_line"),
+                }
+            )
+        else:
+            self.live_context_ledger.append({"kind": tool, "path": action.get("path", "")})
+
     def add_messages(self, *messages: dict) -> list[dict]:
         self.logger.debug(messages)  # set log level to debug to see
         self.messages.extend(messages)
@@ -82,7 +200,36 @@ class DefaultAgent:
 
     def _progress(self, message: str) -> None:
         if self.config.show_progress:
-            print(f"[mini-swe-agent-slow] {message}", file=sys.stderr, flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] [mini-swe-agent-slow] {message}", file=sys.stderr, flush=True)
+
+    def _warn_if_threshold_crossed(self) -> None:
+        if self._operator_warning_emitted:
+            return
+        call_threshold_crossed = (
+            self.config.call_warning_threshold > 0 and self.n_calls >= self.config.call_warning_threshold
+        )
+        time_threshold_crossed = (
+            self.config.model_time_warning_seconds > 0
+            and self.model_elapsed_seconds >= self.config.model_time_warning_seconds
+        )
+        if not (call_threshold_crossed or time_threshold_crossed):
+            return
+        trajectory = str(self.config.output_path) if self.config.output_path else "<not configured>"
+        print(
+            f"[{time.strftime('%H:%M:%S')}] [mini-swe-agent-slow] WARNING: model-call threshold reached; "
+            f"calls={self.n_calls}, cumulative_model_time={self.model_elapsed_seconds:.1f}s, "
+            f"trajectory={trajectory}. This is a warning, not an error; inspect the saved "
+            "trajectory or interrupt deliberately if needed.",
+            file=sys.stderr,
+            flush=True,
+        )
+        self._operator_warning_emitted = True
+
+    def _report_pending_model_request(self, done: threading.Event, call: int, started: float) -> None:
+        while not done.wait(self.config.progress_interval_seconds):
+            self._progress(
+                f"Model request still pending (call {call}; {time.monotonic() - started:.0f}s elapsed)."
+            )
 
     def handle_uncaught_exception(self, e: Exception) -> list[dict]:
         return self.add_messages(
@@ -141,7 +288,7 @@ class DefaultAgent:
         message = self.query()
         if message.get("extra", {}).get("is_final"):
             final_text = message["extra"]["final_text"]
-            self._progress("Task complete.")
+            self._progress("Final response received; printing result.")
             raise Submitted(
                 {
                     "role": "exit",
@@ -172,13 +319,26 @@ class DefaultAgent:
         self.n_calls += 1
         self._progress(f"Waiting for model response (call {self.n_calls})…")
         started = time.monotonic()
+        done = threading.Event()
+        reporter = None
+        if self.config.show_progress and self.config.progress_interval_seconds > 0:
+            reporter = threading.Thread(
+                target=self._report_pending_model_request,
+                args=(done, self.n_calls, started),
+                daemon=True,
+            )
+            reporter.start()
         try:
-            message = self.model.query(self.messages)
+            message = self.model.query(self._messages_for_model())
         finally:
+            done.set()
+            if reporter:
+                reporter.join()
             self.model_elapsed_seconds += time.monotonic() - started
         self.cost += message.get("extra", {}).get("cost", 0.0)
         self.add_messages(message)
         self._progress(f"Received model response in {time.monotonic() - started:.1f}s.")
+        self._warn_if_threshold_crossed()
         return message
 
     def execute_actions(self, message: dict) -> list[dict]:
@@ -196,6 +356,7 @@ class DefaultAgent:
             if output.get("extra", {}).get("exception_type") == "TimeoutExpired":
                 output["timeout"] = True
             outputs.append(output)
+            self._record_ledger_entry(action, output)
             self.tool_elapsed_seconds += output["duration_seconds"]
             self.n_tool_calls += 1
             self._progress(f"Action {index}/{len(actions)} finished in {output['duration_seconds']:.1f}s.")
@@ -221,6 +382,7 @@ class DefaultAgent:
                 "mini_version": __version__,
                 "fork_name": FORK_NAME,
                 "upstream_version": UPSTREAM_VERSION,
+                "live_context_ledger": self.live_context_ledger,
                 "exit_status": last_extra.get("exit_status", ""),
                 "submission": last_extra.get("submission", ""),
             },

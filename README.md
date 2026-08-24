@@ -86,7 +86,6 @@ cat > .mini-swe-agent-slow/llama-local.yaml <<'EOF'
 model:
   model_name: "YOUR_MODEL_NAME"
   model_kwargs:
-    custom_llm_provider: "openai"
     api_base: "http://127.0.0.1:8080/v1"
     api_key: "llama.cpp-placeholder"
 EOF
@@ -165,12 +164,29 @@ Most users only need to edit `.mini-swe-agent-slow/llama-local.yaml`:
 | Model name | `model.model_name` |
 | Server address | `model.model_kwargs.api_base` |
 | Server key | `model.model_kwargs.api_key` |
+| Stream tokens | `model.response_streaming` (`draft`, `status`, or `off`) |
+| llama.cpp log | `model.llama_log_path` |
 | Default test/build timeout | `environment.timeout` |
 
 `slow_local.yaml` is included with the fork. It is deliberately conservative for a
 slow server: it allows a 30-second connection attempt, does not replay uncertain model
 requests, and keeps command output compact so logs do not fill the next model prompt.
-It does not shorten useful model-written reports or plans.
+Each observation is capped at 6,000 characters and one turn is capped at 12,000
+observation characters, with a 256-character minimum reservation per result. It does
+not shorten useful model-written reports or plans.
+
+The slow profile warns once after 8 model calls or 1,800 cumulative model seconds.
+Warnings include the trajectory path and are informational only; they do not stop or
+alter the run.
+
+The shipped profile uses direct llama.cpp transport and provisional stderr token streaming.
+The shipped profile uses the lossless `agent.context_mode=full`. Projection can be
+measured explicitly with `-c agent.context_mode=projected`; it changes only the
+temporary model input and preserves the full trajectory and deterministic ledger.
+
+While a model request is pending, `mini-slow` prints an update every minute. This confirms
+that the client request is still open; it does not claim the server is actively generating
+tokens. Set `agent.progress_interval_seconds=0` in an additional `-c` option to disable it.
 
 To change a setting for one run, add another `-c` argument:
 

@@ -7,7 +7,7 @@ from jinja2 import StrictUndefined, Template
 
 from minisweagent.exceptions import FormatError
 from minisweagent.models.utils.openai_multimodal import expand_multimodal_content
-from minisweagent.utils.output import shape_output
+from minisweagent.utils.output import shape_outputs_for_turn
 
 BASH_TOOL = {
     "type": "function",
@@ -176,13 +176,15 @@ def format_toolcall_observation_messages(
     """Format execution outputs into tool result messages."""
     not_executed = {"output": "", "returncode": -1, "exception_info": "action was not executed"}
     padded_outputs = outputs + [not_executed] * (len(actions) - len(outputs))
-    results = []
-    for action, output in zip(actions, padded_outputs):
-        raw_output = output.get("output", "")
-        output = shape_output(output, **(output_config or {}))
-        content = Template(observation_template, undefined=StrictUndefined).render(
+    def render(output: dict) -> str:
+        return Template(observation_template, undefined=StrictUndefined).render(
             output=output, **(template_vars or {})
         )
+    results = []
+    shaped_outputs = shape_outputs_for_turn(padded_outputs, output_config, render=render)
+    for action, source, output in zip(actions, padded_outputs, shaped_outputs):
+        raw_output = source.get("output", "")
+        content = render(output)
         msg = {
             "content": content,
             "extra": {
@@ -194,6 +196,9 @@ def format_toolcall_observation_messages(
                 "duration_seconds": output.get("duration_seconds"),
                 "truncated": output.get("truncated", False),
                 "original_chars": output.get("original_chars"),
+                "displayed_chars": output.get("displayed_chars"),
+                "turn_budget": output.get("turn_budget", 0),
+                "turn_truncated": output.get("turn_truncated", False),
                 **output.get("extra", {}),
             },
         }

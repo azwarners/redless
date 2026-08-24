@@ -3,18 +3,9 @@
 from pathlib import Path
 
 import typer
-from datasets import load_dataset
 
 from minisweagent import global_config_dir
-from minisweagent.agents import get_agent
-from minisweagent.config import builtin_config_dir, get_config_from_spec
-from minisweagent.models import get_model
-from minisweagent.run.benchmarks.swebench import (
-    DATASET_MAPPING,
-    get_sb_environment,
-)
-from minisweagent.utils.log import logger
-from minisweagent.utils.serialize import UNSET, recursive_merge
+from minisweagent.config import builtin_config_dir
 
 DEFAULT_OUTPUT_FILE = global_config_dir / "last_swebench_single_run.traj.json"
 DEFAULT_CONFIG_FILE = builtin_config_dir / "benchmarks" / "swebench.yaml"
@@ -56,6 +47,18 @@ def main(
 ) -> None:
     # fmt: on
     """Run on a single SWE-Bench instance."""
+    # Keep `mini-extra swebench-single --help` independent of the optional,
+    # heavyweight benchmark stack. These imports are needed only after the
+    # command has been selected for an actual run.
+    from datasets import load_dataset
+
+    from minisweagent.agents import get_agent
+    from minisweagent.config import get_config_from_spec
+    from minisweagent.models import get_model
+    from minisweagent.run.benchmarks.swebench import DATASET_MAPPING, get_sb_environment
+    from minisweagent.utils.log import logger
+    from minisweagent.utils.serialize import UNSET, recursive_merge
+
     dataset_path = DATASET_MAPPING.get(subset, subset)
     logger.info(f"Loading dataset from {dataset_path}, split {split}...")
     instances = {

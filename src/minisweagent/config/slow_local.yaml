@@ -22,6 +22,11 @@ agent:
     to inspect it without staging; exit code 1 means a diff was found. For analysis,
     check conclusions and referenced files. Keep
     incidental narration brief, but preserve useful final work.
+    For review or analysis tasks, search once for candidate files, then read only the
+    sections needed to support a conclusion. Do not scan files page-by-page or reread
+    a path unless a later edit or new evidence makes it necessary. Collect enough
+    targeted evidence to write the requested report; do not keep gathering evidence
+    merely because the repository is large.
     When the task is complete, respond with a concise final answer. Do not make an
     extra tool call merely to announce completion.
   instance_template: |
@@ -30,6 +35,15 @@ agent:
   cost_limit: 0.
   wall_time_limit_seconds: 0
   show_progress: true
+  # A pending request is normal on CPU models. Print an honest liveness update
+  # every minute; 0 disables these updates.
+  progress_interval_seconds: 60
+  # Warn once after sustained model use; warnings never alter control flow.
+  call_warning_threshold: 8
+  model_time_warning_seconds: 1800
+  # Keep the shipped profile lossless; projection is opt-in for measurement.
+  context_mode: full
+  projected_context_max_chars: 24000
 environment:
   environment_class: local
   timeout: 600
@@ -40,21 +54,28 @@ environment:
     PIP_PROGRESS_BAR: 'off'
     TQDM_DISABLE: '1'
 model:
-  model_class: litellm
+  # Direct llama.cpp transport enables provisional token streaming without LiteLLM.
+  model_class: llama_cpp
   cost_tracking: disabled
   # Establishing TCP/TLS may take at most 30 seconds. This does not limit reads,
   # prompt prefill, or generation after the connection has been made.
   connect_timeout_seconds: 30
   # 0 deliberately means no fork-imposed model read/generation deadline.
   model_timeout_seconds: 0
+  # Optional path to a separately captured llama-server log for Phase F analysis.
+  llama_log_path: null
+  response_streaming: draft
   # No automatic replay after the original inference request.
   max_retries: 0
   # Bound deterministic tool observations, not model-generated responses.
   tool_output:
     max_chars: 6000
+    # Bound the combined observations returned by one model turn.
+    max_turn_chars: 12000
+    minimum_chars_per_observation: 256
     head_chars: 1200
     tail_chars: 3600
     error_tail_chars: 4800
   model_kwargs:
-    # LiteLLM compatibility mode. Validate tool support with the target server.
-    drop_params: true
+    # OpenAI-compatible llama-server endpoint. Override in llama-local.yaml.
+    api_base: http://127.0.0.1:8080/v1

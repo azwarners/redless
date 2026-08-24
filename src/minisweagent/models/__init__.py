@@ -77,6 +77,7 @@ def get_model_name(input_model_name: str | None = None, config: dict | None = No
 
 _MODEL_CLASS_MAPPING = {
     "litellm": "minisweagent.models.litellm_model.LitellmModel",
+    "llama_cpp": "minisweagent.models.llama_cpp_model.LlamaCppModel",
     "litellm_textbased": "minisweagent.models.litellm_textbased_model.LitellmTextbasedModel",
     "litellm_response": "minisweagent.models.litellm_response_model.LitellmResponseModel",
     "openrouter": "minisweagent.models.openrouter_model.OpenRouterModel",

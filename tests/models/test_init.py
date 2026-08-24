@@ -46,6 +46,11 @@ class TestGetModelName:
 
 
 class TestGetModelClass:
+    def test_llama_cpp_model_selection(self):
+        from minisweagent.models.llama_cpp_model import LlamaCppModel
+
+        assert get_model_class("local", "llama_cpp") == LlamaCppModel
+
     def test_anthropic_model_selection(self):
         """Test that anthropic-related model names return LitellmModel by default."""
         from minisweagent.models.litellm_model import LitellmModel
