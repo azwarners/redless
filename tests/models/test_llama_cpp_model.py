@@ -40,6 +40,11 @@ class JsonResponse:
         return self.body
 
 
+class SseMetadataResponse(Response):
+    def iter_lines(self, decode_unicode=True):
+        return ["event: message", ": keep-alive", *super().iter_lines(decode_unicode)]
+
+
 def test_llama_log_parser_reports_context_and_rates():
     stats = parse_llama_server_log(LOG)
     assert stats is not None
@@ -220,3 +225,13 @@ def test_llama_cpp_nemotron_malformed_toolcall_is_not_final(monkeypatch):
     with pytest.raises(FormatError) as exc_info:
         LlamaCppModel(model_name="nemotron", tool_protocol="nemotron", response_streaming="off").query([])
     assert "Nemotron tool calls must contain a bracketed list" in exc_info.value.messages[0]["content"]
+
+
+def test_llama_cpp_accepts_sse_metadata_before_content(monkeypatch):
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *args, **kwargs: SseMetadataResponse([
+            {"choices": [{"delta": {"content": "done"}}]},
+        ]),
+    )
+    assert LlamaCppModel(model_name="local", response_streaming="off").query([])["content"] == "done"

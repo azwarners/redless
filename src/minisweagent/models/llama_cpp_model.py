@@ -150,6 +150,9 @@ class LlamaCppModel:
             if not raw_line:
                 continue
             line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
+            line = line.lstrip()
+            if line.startswith(("event:", "id:", "retry:", ":")):
+                continue
             if line.startswith("data:"):
                 payload = line[5:].strip()
                 if payload == "[DONE]":
