@@ -1,5 +1,8 @@
 import json
 
+import pytest
+
+from minisweagent.exceptions import FormatError
 from minisweagent.models.llama_cpp_model import LlamaCppModel
 from minisweagent.models.llama_log import format_llama_server_stats, parse_llama_server_log
 
@@ -21,6 +24,20 @@ class Response:
 
     def iter_lines(self, decode_unicode=True):
         return [f"data: {json.dumps(chunk)}" for chunk in self.chunks] + ["data: [DONE]"]
+
+
+class JsonResponse:
+    def __init__(self, body):
+        self.body = body
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self, decode_unicode=True):
+        return [json.dumps(self.body)]
+
+    def json(self):
+        return self.body
 
 
 def test_llama_log_parser_reports_context_and_rates():
@@ -63,6 +80,10 @@ def test_llama_cpp_reconstructs_fragmented_tool_call(monkeypatch, tmp_path, caps
     assert result["extra"]["actions"] == [{"command": "echo ok", "tool_call_id": "call-1"}]
     assert seen["url"] == "http://server:8080/v1/chat/completions"
     assert seen["kwargs"]["json"]["stream"] is True
+    assert seen["kwargs"]["json"]["tools"]
+    assert {tool["function"]["name"] for tool in seen["kwargs"]["json"]["tools"]} == {
+        "bash", "read_text", "replace_text", "create_text"
+    }
     assert "llama.cpp: context=429/131072" in capsys.readouterr().err
     assert result["content"] == "thinking "
     assert "llama.cpp" not in result["content"]
@@ -92,3 +113,61 @@ def test_llama_cpp_displays_reasoning_deltas_without_adding_them_to_content(monk
     assert "Model reasoning: Think first." in stderr
     assert "Model draft: final" in stderr
     assert result["content"] == "final"
+
+
+def test_llama_cpp_tool_result_is_sent_back_with_openai_chat_shape(monkeypatch):
+    calls = []
+    responses = [
+        Response([
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call-1", "function": {"name": "bash", "arguments": '{"command":"pwd"}'}}]}, "finish_reason": "tool_calls"}]}
+        ]),
+        Response([{"choices": [{"delta": {"content": "The workspace is clean."}, "finish_reason": "stop"}]}]),
+    ]
+
+    def post(url, **kwargs):
+        calls.append(kwargs["json"])
+        return responses.pop(0)
+
+    monkeypatch.setattr("minisweagent.models.llama_cpp_model.requests.post", post)
+    model = LlamaCppModel(model_name="local", model_kwargs={"api_base": "http://server/v1"}, response_streaming="off")
+    first = model.query([{"role": "user", "content": "inspect the repo"}])
+    observation = model.format_observation_messages(
+        first, [{"output": "/workspace\n", "returncode": 0, "exception_info": None}]
+    )
+    second = model.query([
+        {"role": "user", "content": "inspect the repo"},
+        first,
+        *observation,
+    ])
+
+    assert first["extra"]["actions"] == [{"command": "pwd", "tool_call_id": "call-1"}]
+    assert observation[0]["role"] == "tool"
+    assert observation[0]["tool_call_id"] == "call-1"
+    assert observation[0]["content"] == "<returncode>0</returncode>\n<output>\n/workspace\n</output>"
+    assert calls[1]["messages"][1]["tool_calls"][0]["id"] == "call-1"
+    assert calls[1]["messages"][2] == {"role": "tool", "tool_call_id": "call-1", "content": observation[0]["content"]}
+    assert second["extra"]["is_final"] is True
+    assert second["extra"]["final_text"] == "The workspace is clean."
+
+
+def test_llama_cpp_nonstream_chat_response_is_supported(monkeypatch):
+    response = JsonResponse({"choices": [{"message": {"role": "assistant", "content": "done"}, "finish_reason": "stop"}]})
+    monkeypatch.setattr("minisweagent.models.llama_cpp_model.requests.post", lambda *a, **k: response)
+    result = LlamaCppModel(model_name="local", response_streaming="off").query([])
+    assert result["extra"]["is_final"] is True
+    assert result["content"] == "done"
+
+
+def test_llama_cpp_tool_finish_without_a_tool_call_is_a_format_error(monkeypatch):
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *a, **k: Response([{
+            "choices": [{
+                "delta": {"tool_calls": [{"index": 0, "id": "call-bad", "function": {"name": "bash", "arguments": "not json"}}]},
+                "finish_reason": "tool_calls",
+            }]
+        }]),
+    )
+    with pytest.raises(FormatError) as exc_info:
+        LlamaCppModel(model_name="local", response_streaming="off").query([])
+    assert "Error parsing tool call arguments" in exc_info.value.messages[0]["content"]

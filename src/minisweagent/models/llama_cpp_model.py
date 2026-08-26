@@ -85,9 +85,11 @@ class LlamaCppModel:
         request = {
             "model": self.config.model_name,
             "messages": [{k: v for k, v in msg.items() if k != "extra"} for msg in messages],
-            "tools": TOOL_DEFINITIONS,
             **self.config.model_kwargs,
             **kwargs,
+            # Keep the agent's tool protocol authoritative. In particular, a
+            # stale ``tools`` value in model_kwargs must not disable tools.
+            "tools": TOOL_DEFINITIONS,
             "stream": True,
         }
         request.pop("api_base", None)
@@ -103,17 +105,19 @@ class LlamaCppModel:
         content: list[str] = []
         calls: dict[int, _ToolCall] = {}
         usage: dict[str, Any] = {}
+        finish_reason = "stop"
         stream_state: dict[str, Any] = {"open": False, "label": ""}
-        for raw_line in response.iter_lines(decode_unicode=True):
-            if not raw_line or not raw_line.startswith("data:"):
-                continue
-            payload = raw_line[5:].strip()
-            if payload == "[DONE]":
-                break
-            chunk = json.loads(payload)
+
+        def consume_chunk(chunk: dict) -> None:
+            nonlocal finish_reason
             usage.update(chunk.get("usage") or {})
             for choice in chunk.get("choices", []):
+                finish_reason = choice.get("finish_reason") or finish_reason
                 delta = choice.get("delta") or {}
+                # Non-streaming Chat Completions responses use ``message``;
+                # treating it as a delta also makes local mock servers useful.
+                if not delta:
+                    delta = choice.get("message") or {}
                 text = delta.get("content") or ""
                 if text:
                     content.append(text)
@@ -129,11 +133,33 @@ class LlamaCppModel:
                     self._stream_text("Model reasoning", reasoning, stream_state)
                 for tool in delta.get("tool_calls") or []:
                     index = int(tool.get("index", 0))
-                    call = calls.setdefault(index, _ToolCall(tool.get("id", f"call_{index}"), _Function()))
+                    call = calls.setdefault(index, _ToolCall(tool.get("id") or "", _Function()))
                     call.id = tool.get("id") or call.id
                     function = tool.get("function") or {}
                     call.function.name += function.get("name") or ""
                     call.function.arguments += function.get("arguments") or ""
+
+        saw_chunk = False
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if not raw_line:
+                continue
+            line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
+            if line.startswith("data:"):
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+            else:
+                # Be liberal with OpenAI-compatible servers that ignore
+                # ``stream=true`` and return one ordinary JSON response.
+                payload = line.strip()
+            if not payload:
+                continue
+            consume_chunk(json.loads(payload))
+            saw_chunk = True
+        if not saw_chunk and hasattr(response, "json"):
+            body = response.json()
+            if isinstance(body, dict):
+                consume_chunk(body)
         if self.config.response_streaming == "draft":
             if stream_state.get("open"):
                 print(file=sys.stderr, flush=True)
@@ -147,8 +173,14 @@ class LlamaCppModel:
             actions = parse_toolcall_actions(
                 tool_calls,
                 format_error_template=self.config.format_error_template,
-                template_kwargs={"finish_reason": "tool_calls" if tool_calls else "stop"},
+                template_kwargs={"finish_reason": finish_reason},
             ) if tool_calls else []
+            if finish_reason == "tool_calls" and not tool_calls:
+                parse_toolcall_actions(
+                    [],
+                    format_error_template=self.config.format_error_template,
+                    template_kwargs={"finish_reason": finish_reason},
+                )
         except Exception as error:
             if hasattr(error, "messages"):
                 error.messages[0].setdefault("extra", {}).update(

@@ -142,6 +142,8 @@ def parse_toolcall_actions(
     for tool_call in tool_calls:
         error_msg = ""
         args = {}
+        if not getattr(tool_call, "id", None):
+            error_msg = "Missing tool call ID."
         try:
             args = json.loads(tool_call.function.arguments)
         except Exception as e:
