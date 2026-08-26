@@ -74,20 +74,22 @@ Here is a list of functions in JSON format that you can invoke.
     def prepare_request(self, messages: list[dict], tools: list[dict]) -> list[dict]:
         functions = [tool["function"] for tool in tools]
         available = f"<AVAILABLE_TOOLS>{json.dumps(functions, separators=(',', ':'))}</AVAILABLE_TOOLS>"
-        system = (
-            f"{self._instruction}{available}\n\n"
-            "For repository tasks, use the available inspection tools whenever repository evidence is required."
-        )
         prepared = []
         for message in messages:
             clean = {k: v for k, v in message.items() if k not in {"extra", "tool_calls", "tool_call_id"}}
             if clean.get("role") == "tool":
                 clean = {"role": "user", "content": f"Tool result ({message.get('tool_call_id', '')}):\n{clean.get('content', '')}"}
             prepared.append(clean)
-        if prepared and prepared[0].get("role") == "system":
-            prepared[0] = {**prepared[0], "content": f"{prepared[0].get('content', '')}\n\n{system}"}
+        prompt = (
+            f"{self._instruction}{available}\n\n"
+            "For repository tasks, use the available inspection tools whenever repository evidence is required.\n\n"
+        )
+        for message in prepared:
+            if message.get("role") == "user":
+                message["content"] = f"{prompt}{message.get('content', '')}"
+                break
         else:
-            prepared.insert(0, {"role": "system", "content": system})
+            prepared.append({"role": "user", "content": prompt})
         return prepared
 
     def parse_response(self, content: str, tool_calls: list, *, format_error_template: str, finish_reason: str) -> list[dict]:

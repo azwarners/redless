@@ -207,8 +207,10 @@ def test_llama_cpp_nemotron_protocol_round_trip_and_multiple_calls(monkeypatch):
         {"tool": "read_text", "path": "README.md", "start_line": 1, "end_line": 2, "tool_call_id": "nemotron-1"},
         {"command": "pwd", "timeout_seconds": 3, "tool_call_id": "nemotron-2"},
     ]
-    assert "<AVAILABLE_TOOLS>" in requests[0]["messages"][0]["content"]
-    assert "read_text" in requests[0]["messages"][0]["content"]
+    prompt = next(message["content"] for message in requests[0]["messages"] if message["role"] == "user")
+    assert "<AVAILABLE_TOOLS>" in prompt
+    assert "read_text" in prompt
+    assert prompt.index("<AVAILABLE_TOOLS>") < prompt.index("Inspect the repository.")
     assert "tools" not in requests[0]
     assert first_observation[0]["role"] == "user"
     assert "Tool result (nemotron-1)" in requests[1]["messages"][-2]["content"]
