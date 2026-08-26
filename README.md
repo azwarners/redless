@@ -187,6 +187,7 @@ Most users only need to edit `.mini-swe-agent-slow/llama-local.yaml`:
 | Server address | `model.model_kwargs.api_base` |
 | Server key | `model.model_kwargs.api_key` |
 | Stream tokens | `model.response_streaming` (`draft`, `status`, or `off`) |
+| Model tool protocol | `model.tool_protocol` (`openai` or `nemotron`) |
 | llama.cpp log | `model.llama_log_path` |
 | Default test/build timeout | `environment.timeout` |
 
@@ -210,6 +211,19 @@ The shipped profile uses direct llama.cpp transport and provisional stderr token
 When llama.cpp provides `reasoning_content`, `reasoning`, or `thinking` stream deltas,
 they are displayed as timestamped `Model reasoning` output; they are not added as a
 synthetic message to the conversation.
+
+### Local model tool protocols
+
+Tool syntax belongs to the model as well as the server. `openai` (the default) uses
+llama.cpp's native OpenAI-compatible tool calls. Set `model.tool_protocol: nemotron`
+for NVIDIA Llama-3.1-Nemotron-Ultra-253B-v1: the adapter injects the model card's
+`<AVAILABLE_TOOLS>` block and parses its `<TOOLCALL>` text over the ordinary
+content-only chat endpoint. llama.cpp reporting `supports_tools: false` describes
+the active chat template's native support; it does not necessarily mean that the
+underlying model cannot use tools.
+
+A future model-specific protocol can be added as another small adapter at the
+llama.cpp model boundary. The agent continues to receive the same normalized actions.
 The shipped profile uses the lossless `agent.context_mode=full`. Projection can be
 measured explicitly with `-c agent.context_mode=projected`; it changes only the
 temporary model input and preserves the full trajectory and deterministic ledger.

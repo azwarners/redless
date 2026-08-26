@@ -13,14 +13,16 @@ from minisweagent.models.llama_log import format_llama_server_stats, read_llama_
 from minisweagent.models.utils.actions_toolcall import (
     TOOL_DEFINITIONS,
     format_toolcall_observation_messages,
-    parse_toolcall_actions,
 )
 from minisweagent.models.utils.openai_multimodal import expand_multimodal_content
+from minisweagent.models.utils.tool_protocol import get_tool_protocol
 
 
 class LlamaCppModelConfig(LitellmModelConfig):
     response_streaming: Literal["off", "status", "draft"] = "draft"
     """Direct llama.cpp transport mode. ``draft`` prints provisional text to stderr."""
+    tool_protocol: Literal["openai", "nemotron"] = "openai"
+    """Tool syntax used by the model; Nemotron is handled over content-only chat."""
 
 
 @dataclass
@@ -82,16 +84,20 @@ class LlamaCppModel:
 
     def query(self, messages: list[dict[str, str]], **kwargs) -> dict:
         started = time.monotonic()
+        protocol = get_tool_protocol(self.config.tool_protocol)
         request = {
             "model": self.config.model_name,
-            "messages": [{k: v for k, v in msg.items() if k != "extra"} for msg in messages],
+            "messages": protocol.prepare_request(messages, TOOL_DEFINITIONS),
             **self.config.model_kwargs,
             **kwargs,
-            # Keep the agent's tool protocol authoritative. In particular, a
-            # stale ``tools`` value in model_kwargs must not disable tools.
-            "tools": TOOL_DEFINITIONS,
             "stream": True,
         }
+        if self.config.tool_protocol == "openai":
+            # Keep the agent's tool protocol authoritative. In particular, a
+            # stale ``tools`` value in model_kwargs must not disable tools.
+            request["tools"] = TOOL_DEFINITIONS
+        else:
+            request.pop("tools", None)
         request.pop("api_base", None)
         request.pop("api_key", None)
         response = requests.post(
@@ -170,16 +176,22 @@ class LlamaCppModel:
         if stats:
             self._print(format_llama_server_stats(stats))
         try:
-            actions = parse_toolcall_actions(
-                tool_calls,
-                format_error_template=self.config.format_error_template,
-                template_kwargs={"finish_reason": finish_reason},
-            ) if tool_calls else []
-            if finish_reason == "tool_calls" and not tool_calls:
-                parse_toolcall_actions(
-                    [],
+            if self.config.tool_protocol == "nemotron":
+                parsed_calls = protocol.parse_response(
+                    "".join(content), tool_calls,
                     format_error_template=self.config.format_error_template,
-                    template_kwargs={"finish_reason": finish_reason},
+                    finish_reason=finish_reason,
+                )
+                # The textual call objects are intentionally kept in the same
+                # OpenAI-shaped envelope expected by trajectory consumers.
+                protocol_calls = protocol.response_tool_calls("".join(content))
+                actions = parsed_calls
+            else:
+                protocol_calls = tool_calls
+                actions = protocol.parse_response(
+                    "".join(content), tool_calls,
+                    format_error_template=self.config.format_error_template,
+                    finish_reason=finish_reason,
                 )
         except Exception as error:
             if hasattr(error, "messages"):
@@ -192,8 +204,10 @@ class LlamaCppModel:
             "role": "assistant",
             "content": "".join(content) or None,
             "tool_calls": [
+                {"id": call.id, "type": "function", "function": {"name": call.name, "arguments": call.arguments}}
+                if hasattr(call, "name") else
                 {"id": call.id, "type": call.type, "function": {"name": call.function.name, "arguments": call.function.arguments}}
-                for call in tool_calls
+                for call in protocol_calls
             ],
             "extra": {
                 "actions": actions,
@@ -212,7 +226,7 @@ class LlamaCppModel:
         return expand_multimodal_content(kwargs, pattern=self.config.multimodal_regex)
 
     def format_observation_messages(self, message: dict, outputs: list[dict], template_vars: dict | None = None) -> list[dict]:
-        return format_toolcall_observation_messages(
+        results = format_toolcall_observation_messages(
             actions=message.get("extra", {}).get("actions", []),
             outputs=outputs,
             observation_template=self.config.observation_template,
@@ -220,6 +234,7 @@ class LlamaCppModel:
             multimodal_regex=self.config.multimodal_regex,
             output_config=self.config.tool_output,
         )
+        return get_tool_protocol(self.config.tool_protocol).format_tool_result(results)
 
     def get_template_vars(self, **kwargs) -> dict[str, Any]:
         return self.config.model_dump()

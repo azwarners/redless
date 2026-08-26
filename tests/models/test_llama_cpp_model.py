@@ -171,3 +171,52 @@ def test_llama_cpp_tool_finish_without_a_tool_call_is_a_format_error(monkeypatch
     with pytest.raises(FormatError) as exc_info:
         LlamaCppModel(model_name="local", response_streaming="off").query([])
     assert "Error parsing tool call arguments" in exc_info.value.messages[0]["content"]
+
+
+def test_llama_cpp_nemotron_protocol_round_trip_and_multiple_calls(monkeypatch):
+    requests = []
+    responses = [
+        Response([{"choices": [{"delta": {"content": '<TOOLCALL>[read_text(path="README.md", start_line=1, end_line=2), bash(command="pwd", timeout_seconds=3)]</TOOLCALL>'}}]}]),
+        Response([{"choices": [{"delta": {"content": '<TOOLCALL>[read_text(path="src/app.py", start_line=4, end_line=4)]</TOOLCALL>'}}]}]),
+        Response([{"choices": [{"delta": {"content": "The repository was inspected."}}]}]),
+    ]
+
+    def post(url, **kwargs):
+        requests.append(kwargs["json"])
+        return responses.pop(0)
+
+    monkeypatch.setattr("minisweagent.models.llama_cpp_model.requests.post", post)
+    model = LlamaCppModel(model_name="nemotron", tool_protocol="nemotron", response_streaming="off")
+    first = model.query([{"role": "user", "content": "Inspect the repository."}])
+    first_observation = model.format_observation_messages(
+        first,
+        [{"output": "line one\nline two", "returncode": 0, "exception_info": None}, {"output": "/repo", "returncode": 0, "exception_info": None}],
+    )
+    second = model.query([{"role": "user", "content": "Inspect the repository."}, first, *first_observation])
+    second_observation = model.format_observation_messages(
+        second, [{"output": "code", "returncode": 0, "exception_info": None}]
+    )
+    final = model.query([{"role": "user", "content": "Inspect the repository."}, first, *first_observation, second, *second_observation])
+
+    assert first["extra"]["actions"] == [
+        {"tool": "read_text", "path": "README.md", "start_line": 1, "end_line": 2, "tool_call_id": "nemotron-1"},
+        {"command": "pwd", "timeout_seconds": 3, "tool_call_id": "nemotron-2"},
+    ]
+    assert "<AVAILABLE_TOOLS>" in requests[0]["messages"][0]["content"]
+    assert "read_text" in requests[0]["messages"][0]["content"]
+    assert "tools" not in requests[0]
+    assert first_observation[0]["role"] == "user"
+    assert "Tool result (nemotron-1)" in requests[1]["messages"][-2]["content"]
+    assert second["extra"]["actions"][0]["path"] == "src/app.py"
+    assert final["extra"]["is_final"] is True
+    assert final["extra"]["final_text"] == "The repository was inspected."
+
+
+def test_llama_cpp_nemotron_malformed_toolcall_is_not_final(monkeypatch):
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *args, **kwargs: Response([{"choices": [{"delta": {"content": "<TOOLCALL>[bash(command=oops)</TOOLCALL>"}}]}]),
+    )
+    with pytest.raises(FormatError) as exc_info:
+        LlamaCppModel(model_name="nemotron", tool_protocol="nemotron", response_streaming="off").query([])
+    assert "Nemotron tool calls must contain a bracketed list" in exc_info.value.messages[0]["content"]
