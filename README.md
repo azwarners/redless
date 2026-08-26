@@ -1,4 +1,6 @@
-# mini-swe-agent-slow
+# REDLESS
+
+Reusable Extendable Digital Labor Execution Software Subsystem
 
 `mini-swe-agent-slow` is a small coding agent for local AI models. It is designed
 for machines where asking the model for another response is slow, but searching files,
