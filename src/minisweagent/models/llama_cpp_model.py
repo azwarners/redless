@@ -202,7 +202,10 @@ class LlamaCppModel:
                     {"request_elapsed_seconds": time.monotonic() - started, "response": repr(tool_calls)}
                 )
             raise
-        final = not tool_calls and bool("".join(content).strip())
+        # ``tool_calls`` contains only native OpenAI calls.  Textual protocols
+        # populate ``protocol_calls`` instead, so finality must use the
+        # protocol-normalized result or a textual tool call can be submitted.
+        final = not protocol_calls and bool("".join(content).strip())
         return {
             "role": "assistant",
             "content": "".join(content) or None,

@@ -2,6 +2,8 @@ import json
 
 import pytest
 
+from minisweagent.agents.default import DefaultAgent
+from minisweagent.environments.local import LocalEnvironment
 from minisweagent.exceptions import FormatError
 from minisweagent.models.llama_cpp_model import LlamaCppModel
 from minisweagent.models.llama_log import format_llama_server_stats, parse_llama_server_log
@@ -218,6 +220,38 @@ def test_llama_cpp_nemotron_protocol_round_trip_and_multiple_calls(monkeypatch):
     assert second["extra"]["actions"][0]["path"] == "src/app.py"
     assert final["extra"]["is_final"] is True
     assert final["extra"]["final_text"] == "The repository was inspected."
+
+
+def test_nemotron_tool_action_is_executed_before_prose_submission(monkeypatch):
+    requests = []
+    responses = [
+        Response([{"choices": [{"delta": {"content": '<TOOLCALL>[bash(command="grep -r \'interactive\' .")]</TOOLCALL>'}}]}]),
+        Response([{"choices": [{"delta": {"content": "The repository inspection is complete."}}]}]),
+    ]
+
+    def post(url, **kwargs):
+        requests.append(kwargs["json"])
+        return responses.pop(0)
+
+    monkeypatch.setattr("minisweagent.models.llama_cpp_model.requests.post", post)
+    model = LlamaCppModel(model_name="nemotron", tool_protocol="nemotron", response_streaming="draft")
+    agent = DefaultAgent(
+        model=model,
+        env=LocalEnvironment(),
+        system_template="You are a repository agent.",
+        instance_template="{{task}}",
+        step_limit=2,
+    )
+
+    info = agent.run("Inspect the repository.")
+
+    assert agent.messages[2]["extra"]["actions"]
+    assert agent.messages[2]["extra"]["is_final"] is False
+    assert agent.n_tool_calls == 1
+    assert agent.n_calls == 2
+    assert any(message.get("role") == "user" and "<returncode>" in message.get("content", "") for message in agent.messages)
+    assert info["submission"] == "The repository inspection is complete."
+    assert len(requests) == 2
 
 
 def test_llama_cpp_nemotron_malformed_toolcall_is_not_final(monkeypatch):
