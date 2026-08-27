@@ -5,6 +5,7 @@ import pytest
 from minisweagent.exceptions import FormatError
 from minisweagent.models.llama_cpp_model import LlamaCppModel
 from minisweagent.models.llama_log import format_llama_server_stats, parse_llama_server_log
+from minisweagent.models.utils.tool_protocol import NemotronToolProtocol
 
 LOG = """
 35.00.706.626 I slot operator(): id  0 | task 0 | new prompt, n_ctx_slot = 131072, n_keep = 0, task.n_tokens = 429
@@ -226,7 +227,12 @@ def test_llama_cpp_nemotron_malformed_toolcall_is_not_final(monkeypatch):
     )
     with pytest.raises(FormatError) as exc_info:
         LlamaCppModel(model_name="nemotron", tool_protocol="nemotron", response_streaming="off").query([])
-    assert "Nemotron tool calls must contain a bracketed list" in exc_info.value.messages[0]["content"]
+    error = exc_info.value.messages[0]["content"]
+    assert "FORMAT ERROR" in error
+    assert "Nemotron" in error
+    assert "Available tools:" in error
+    assert "- bash" in error
+    assert "Nemotron is not a tool" not in error
 
 
 def test_llama_cpp_accepts_sse_metadata_before_content(monkeypatch):
@@ -237,3 +243,47 @@ def test_llama_cpp_accepts_sse_metadata_before_content(monkeypatch):
         ]),
     )
     assert LlamaCppModel(model_name="local", response_streaming="off").query([])["content"] == "done"
+
+
+def test_nemotron_empty_and_unknown_calls_have_specific_recovery_feedback():
+    protocol = NemotronToolProtocol()
+    for output, expected in [
+        ("<TOOLCALL>[]</TOOLCALL>", "tool-call list is empty"),
+        ("<TOOLCALL>[Nemotron(command=\"pwd\") ]</TOOLCALL>", "Unknown tool 'Nemotron'"),
+        ("before <TOOLCALL>[bash(command=\"pwd\") ]</TOOLCALL>", "only the tool-call block"),
+    ]:
+        with pytest.raises(FormatError) as exc_info:
+            protocol.parse_response(output, [], format_error_template="{{ error }}", finish_reason="stop")
+        message = exc_info.value.messages[0]["content"]
+        assert expected in message
+        assert "Available tools:" in message
+        assert "- read_text" in message
+
+
+def test_nemotron_recovers_from_empty_call_then_completes_repository_sequence(monkeypatch):
+    responses = [
+        Response([{"choices": [{"delta": {"content": "<TOOLCALL>[]</TOOLCALL>"}}]}]),
+        Response([{"choices": [{"delta": {"content": '<TOOLCALL>[bash(command="git ls-files | head -200")]</TOOLCALL>'}}]}]),
+        Response([{"choices": [{"delta": {"content": '<TOOLCALL>[read_text(path="README.md", start_line=1, end_line=20)]</TOOLCALL>'}}]}]),
+        Response([{"choices": [{"delta": {"content": "The blueprint is ready."}}]}]),
+    ]
+    monkeypatch.setattr("minisweagent.models.llama_cpp_model.requests.post", lambda *args, **kwargs: responses.pop(0))
+    model = LlamaCppModel(model_name="nemotron", tool_protocol="nemotron", response_streaming="off")
+    task = {"role": "user", "content": "Inspect the repository and create a blueprint."}
+    with pytest.raises(FormatError) as exc_info:
+        model.query([task])
+    recovery = exc_info.value.messages[0]
+    discovery = model.query([task, recovery])
+    discovery_observation = model.format_observation_messages(
+        discovery, [{"output": "README.md\nsrc/", "returncode": 0, "exception_info": None}]
+    )
+    read = model.query([task, recovery, discovery, *discovery_observation])
+    read_observation = model.format_observation_messages(
+        read, [{"output": "# Project", "returncode": 0, "exception_info": None}]
+    )
+    final = model.query([task, recovery, discovery, *discovery_observation, read, *read_observation])
+
+    assert recovery["extra"]["interrupt_type"] == "FormatError"
+    assert discovery["extra"]["actions"][0]["command"] == "git ls-files | head -200"
+    assert read["extra"]["actions"][0]["path"] == "README.md"
+    assert final["extra"]["final_text"] == "The blueprint is ready."

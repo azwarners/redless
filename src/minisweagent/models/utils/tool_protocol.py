@@ -58,7 +58,7 @@ class NemotronToolProtocol:
 
 Based on the question, you will need to make one or more function/tool calls to achieve the purpose.
 
-If none of the function can be used, point it out. If the given question lacks the parameters required by the function, also point it out.
+If none of the function can be used, point it out. For autonomous repository work, unknown filenames, paths, symbols, modules, repository structure, implementation details, and test locations are not missing parameters: use the available tools to discover them.
 
 You should only return the function call in tools call sections.
 
@@ -66,9 +66,15 @@ If you decide to invoke any of the function(s), you MUST put it in the format of
 
 <TOOLCALL>[func_name1(params_name1=params_value1, params_name2=params_value2...), func_name2(params)]</TOOLCALL>
 
-You SHOULD NOT include any other text in the response.
+You SHOULD NOT include any other text in a response containing a tool call.
 
 Here is a list of functions in JSON format that you can invoke.
+
+The functions below are executable actions in the current repository workspace, not hypothetical examples. If repository contents are relevant, gather evidence with tools before producing a final answer. Do not merely describe which tools you would use: invoke them. Bash may discover information without knowing exact filenames in advance. For example:
+
+<TOOLCALL>[bash(command="git ls-files | head -200")]</TOOLCALL>
+
+Do not return an empty tool-call list. Return one or more valid tool calls, or a final answer only when the task is actually complete.
 """
 
     def prepare_request(self, messages: list[dict], tools: list[dict]) -> list[dict]:
@@ -94,12 +100,14 @@ Here is a list of functions in JSON format that you can invoke.
 
     def parse_response(self, content: str, tool_calls: list, *, format_error_template: str, finish_reason: str) -> list[dict]:
         if tool_calls:
-            raise FormatError({"role": "user", "content": "Native tool calls are not valid for the Nemotron protocol.", "extra": {"interrupt_type": "FormatError"}})
+            raise self._error(content, "Native tool calls are not valid for this content-based protocol.", format_error_template, finish_reason)
         match = re.search(r"<TOOLCALL>(.*?)</TOOLCALL>", content, re.DOTALL)
         if not match:
             if "<TOOLCALL>" in content or "</TOOLCALL>" in content:
-                raise self._error(format_error_template, "Malformed <TOOLCALL> syntax.", finish_reason)
+                raise self._error(content, "The <TOOLCALL> block is incomplete or malformed.", format_error_template, finish_reason)
             return []
+        if content.strip() != match.group(0).strip():
+            raise self._error(content, "A response containing a tool call must contain only the tool-call block.", format_error_template, finish_reason)
         try:
             calls = self.response_tool_calls(content)
             return parse_toolcall_actions(
@@ -107,23 +115,32 @@ Here is a list of functions in JSON format that you can invoke.
                 format_error_template=format_error_template,
                 template_kwargs={"finish_reason": finish_reason},
             )
-        except FormatError:
-            raise
+        except FormatError as error:
+            detail = error.messages[0].get("content", "The tool arguments were invalid.")
+            raise self._error(content, detail, format_error_template, finish_reason) from error
         except ValueError as error:
-            raise self._error(format_error_template, str(error), finish_reason) from error
+            raise self._error(content, str(error), format_error_template, finish_reason) from error
 
     def response_tool_calls(self, content: str) -> list[ProtocolToolCall]:
         match = re.search(r"<TOOLCALL>(.*?)</TOOLCALL>", content, re.DOTALL)
         return self._parse_calls(match.group(1)) if match else []
 
     @staticmethod
-    def _error(template: str, error: str, finish_reason: str) -> FormatError:
+    def _error(content: str, error: str, template: str, finish_reason: str) -> FormatError:
         from jinja2 import StrictUndefined, Template
 
+        available = "\n".join(f"- {tool['function']['name']}" for tool in TOOL_DEFINITIONS)
+        feedback = (
+            "FORMAT ERROR: Your previous response contained an invalid tool-call block for the Nemotron protocol.\n\n"
+            f"You returned:\n{content}\n\nReason: {error}\n\n"
+            f"Available tools:\n{available}\n\n"
+            "If repository information is unknown, use bash or read_text to discover it.\n"
+            "Do not explain this error. Return one or more valid tool calls, or a final answer only if the task is actually complete."
+        )
         return FormatError({
             "role": "user",
             "content": Template(template, undefined=StrictUndefined).render(
-                error=error, actions=[], has_tool_calls=True, finish_reason=finish_reason
+                error=feedback, actions=[], has_tool_calls=True, finish_reason=finish_reason
             ),
             "extra": {"interrupt_type": "FormatError"},
         })
@@ -132,6 +149,8 @@ Here is a list of functions in JSON format that you can invoke.
         text = text.strip()
         if not (text.startswith("[") and text.endswith("]")):
             raise ValueError("Nemotron tool calls must contain a bracketed list.")
+        if not text[1:-1].strip():
+            raise ValueError("The Nemotron tool-call list is empty.")
         calls = []
         for index, call_text in enumerate(self._split(text[1:-1], ",")):
             match = re.fullmatch(r"\s*([A-Za-z_][\w]*)\s*\((.*)\)\s*", call_text, re.DOTALL)
@@ -150,6 +169,9 @@ Here is a list of functions in JSON format that you can invoke.
                 (tool["function"]["name"] for tool in TOOL_DEFINITIONS if tool["function"]["name"].lower() == name.lower()),
                 name,
             )
+            if canonical_name == name and not any(tool["function"]["name"] == name for tool in TOOL_DEFINITIONS):
+                available = ", ".join(tool["function"]["name"] for tool in TOOL_DEFINITIONS)
+                raise ValueError(f"Unknown tool '{name}'. Available tools: {available}.")
             calls.append(ProtocolToolCall(f"nemotron-{index + 1}", canonical_name, json.dumps(args)))
         if not calls:
             raise ValueError("The Nemotron tool call list is empty.")
