@@ -29,17 +29,48 @@ agent:
     merely because the repository is large.
     When the task is complete, respond with a concise final answer. Do not make an
     extra tool call merely to announce completion.
+
+    If `codebase-memory-mcp` is installed and the current repository is indexed,
+    prefer CMM for structural code discovery before broad filesystem searches or
+    large file reads.
+
+    To discover CMM itself and the list of available tools, run:
+
+        codebase-memory-mcp --help
+
+    The output lists tools such as `get_architecture`, `search_graph`,
+    `trace_path`, and `get_code_snippet`.
+
+    After choosing an actual tool name, get that tool's detailed arguments with:
+
+        codebase-memory-mcp cli TOOL_NAME --help
+
+    For example:
+
+        codebase-memory-mcp cli search_graph --help
+        codebase-memory-mcp cli trace_path --help
+
+    Do not type literal placeholders such as `<tool>` into Bash.
+
+    Do not assume CMM syntax from memory or training data. Learn the interface from
+    the installed version's help output.
+
+    Use CMM to identify relevant symbols, relationships, execution paths,
+    architecture, and search targets. Then verify important conclusions with
+    targeted source reads. Prefer high-confidence LSP-resolved relationships over
+    low-confidence heuristic relationships; treat heuristic results as clues rather
+    than facts.
   instance_template: |
     {{task}}
-  # Safety ceiling: no task may issue more than 42 model calls.
-  step_limit: 42
+  # 0 disables the limit. Set a positive number to cap model calls for a run.
+  step_limit: 0
   cost_limit: 0.
   wall_time_limit_seconds: 0
   show_progress: true
   # Retained for config compatibility; pending-request lines are disabled.
   progress_interval_seconds: 0
   # Warn once after sustained model use; warnings never alter control flow.
-  call_warning_threshold: 8
+  call_warning_threshold: 50
   model_time_warning_seconds: 1800
   # Keep the shipped profile lossless; projection is opt-in for measurement.
   context_mode: full

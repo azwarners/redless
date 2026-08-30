@@ -12,14 +12,15 @@ request is running. Set `model_name` and the endpoint in a small local settings 
 `mini-slow -c slow_local.yaml -c llama-local.yaml`. Its `max_retries: 0` default
 avoids replaying an expensive or ambiguous generation, while `tool_output` limits
 only live tool observations; raw output remains available in the trajectory.
-The shipped profile hard-stops after 42 model calls as a runaway-inference safety ceiling.
+The shipped profile has no model-call limit; set `agent.step_limit` to a positive
+number when a run needs one.
 The profile caps one turn's rendered observations at 12,000 characters and reserves
 256 characters for each returned observation; set `max_turn_chars: 0` to disable the
 aggregate cap.
 
 The slow profile also warns once after 8 model calls or 1,800 cumulative model
-seconds, and hard-stops after 42 calls. The warning includes the trajectory path; the
-42-call ceiling prevents runaway inference but does not change retry policy.
+seconds. The warning includes the trajectory path and does not change retry policy or
+exit status.
 
 Set `model.llama_log_path` to an externally captured llama-server log when associating
 server timing/context evidence with a run. The fork does not start, redirect, or

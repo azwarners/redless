@@ -50,8 +50,6 @@ class AgentConfig(BaseModel):
 
 
 class DefaultAgent:
-    HARD_MODEL_CALL_LIMIT = 42
-
     def __init__(self, model: Model, env: Environment, *, config_class: type = AgentConfig, **kwargs):
         """See the `AgentConfig` class for permitted keyword arguments."""
         self.config = config_class(**kwargs)
@@ -321,9 +319,7 @@ class DefaultAgent:
 
     def query(self) -> dict:
         """Query the model and return model messages. Override to add hooks."""
-        configured_limit = self.config.step_limit if self.config.step_limit > 0 else self.HARD_MODEL_CALL_LIMIT
-        effective_limit = min(configured_limit, self.HARD_MODEL_CALL_LIMIT)
-        if self.n_calls >= effective_limit or 0 < self.config.cost_limit <= self.cost:
+        if 0 < self.config.step_limit <= self.n_calls or 0 < self.config.cost_limit <= self.cost:
             raise LimitsExceeded(
                 {
                     "role": "exit",

@@ -353,22 +353,25 @@ def test_step_limit_enforcement(model_factory):
     assert agent.n_calls == 1
 
 
-def test_fork_hard_model_call_limit_applies_when_unconfigured(toolcall_config):
+def test_step_limit_zero_allows_more_than_42_calls(toolcall_config):
     output = make_toolcall_output(
         "Continuing",
         [{"id": "call", "type": "function", "function": {"name": "bash", "arguments": '{"command":"true"}'}}],
         [{"command": "true", "tool_call_id": "call"}],
     )
+    final_output = make_toolcall_output("Done.", [], [])
+    final_output["extra"]["is_final"] = True
+    final_output["extra"]["final_text"] = "Done."
     agent = DefaultAgent(
-        model=DeterministicToolcallModel(outputs=[output.copy() for _ in range(43)]),
+        model=DeterministicToolcallModel(outputs=[output.copy() for _ in range(43)] + [final_output]),
         env=LocalEnvironment(),
         **{**toolcall_config, "step_limit": 0, "cost_limit": 0},
     )
 
     info = agent.run("Keep going")
 
-    assert info["exit_status"] == "LimitsExceeded"
-    assert agent.n_calls == DefaultAgent.HARD_MODEL_CALL_LIMIT
+    assert info["exit_status"] == "Submitted"
+    assert agent.n_calls == 44
 
 
 def test_cost_limit_enforcement(model_factory):

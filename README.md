@@ -204,10 +204,11 @@ The slow profile warns once after 8 model calls or 1,800 cumulative model second
 Warnings include the trajectory path and are informational only; they do not stop or
 alter the run.
 
-Every task has a hard safety ceiling of 42 model calls. Action progress is printed as a
-single timestamped line followed by a one-line description of the command or file
-operation. Pending-request heartbeat lines are disabled; a slow request remains open
-without periodic client-side claims about its state.
+The shipped profile has no model-call limit. Set `agent.step_limit` to a positive
+number when a run should have a ceiling. Action progress is printed as a single
+timestamped line followed by a one-line description of the command or file operation.
+Pending-request heartbeat lines are disabled; a slow request remains open without
+periodic client-side claims about its state.
 
 The shipped profile uses direct llama.cpp transport and provisional stderr token streaming.
 When llama.cpp provides `reasoning_content`, `reasoning`, or `thinking` stream deltas,
