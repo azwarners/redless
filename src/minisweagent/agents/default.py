@@ -14,7 +14,14 @@ from jinja2 import StrictUndefined, Template
 from pydantic import BaseModel, Field
 
 from minisweagent import FORK_NAME, UPSTREAM_VERSION, Environment, Model, __version__
-from minisweagent.exceptions import FormatError, InterruptAgentFlow, LimitsExceeded, Submitted, TimeExceeded
+from minisweagent.exceptions import (
+    FormatError,
+    InterruptAgentFlow,
+    LimitsExceeded,
+    ModelStreamError,
+    Submitted,
+    TimeExceeded,
+)
 from minisweagent.utils.serialize import recursive_merge
 
 
@@ -251,16 +258,19 @@ class DefaultAgent:
         self._operator_warning_emitted = True
 
     def handle_uncaught_exception(self, e: Exception) -> list[dict]:
+        extra = {
+            "exit_status": type(e).__name__,
+            "submission": "",
+            "exception_str": str(e),
+            "traceback": traceback.format_exc(),
+        }
+        if isinstance(e, ModelStreamError):
+            extra["model_stream"] = e.diagnostics
         return self.add_messages(
             self.model.format_message(
                 role="exit",
                 content=str(e),
-                extra={
-                    "exit_status": type(e).__name__,
-                    "submission": "",
-                    "exception_str": str(e),
-                    "traceback": traceback.format_exc(),
-                },
+                extra=extra,
             )
         )
 

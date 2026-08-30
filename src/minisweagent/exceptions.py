@@ -24,3 +24,11 @@ class UserInterruption(InterruptAgentFlow):
 
 class FormatError(InterruptAgentFlow):
     """Raised when the LM's output is not in the expected format."""
+
+
+class ModelStreamError(Exception):
+    """Raised when a model server returns malformed or interrupted stream data."""
+
+    def __init__(self, message: str, diagnostics: dict[str, str | int] | None = None):
+        self.diagnostics = diagnostics or {}
+        super().__init__(message)

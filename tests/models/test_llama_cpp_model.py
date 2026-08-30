@@ -1,10 +1,11 @@
 import json
 
 import pytest
+import requests
 
 from minisweagent.agents.default import DefaultAgent
 from minisweagent.environments.local import LocalEnvironment
-from minisweagent.exceptions import FormatError
+from minisweagent.exceptions import FormatError, ModelStreamError
 from minisweagent.models.llama_cpp_model import LlamaCppModel
 from minisweagent.models.llama_log import format_llama_server_stats, parse_llama_server_log
 from minisweagent.models.utils.tool_protocol import NemotronToolProtocol
@@ -46,6 +47,20 @@ class JsonResponse:
 class SseMetadataResponse(Response):
     def iter_lines(self, decode_unicode=True):
         return ["event: message", ": keep-alive", *super().iter_lines(decode_unicode)]
+
+
+class RawResponse:
+    def __init__(self, lines, error=None):
+        self.lines = lines
+        self.error = error
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self, decode_unicode=True):
+        yield from self.lines
+        if self.error:
+            raise self.error
 
 
 def test_llama_log_parser_reports_context_and_rates():
@@ -277,6 +292,74 @@ def test_llama_cpp_accepts_sse_metadata_before_content(monkeypatch):
         ]),
     )
     assert LlamaCppModel(model_name="local", response_streaming="off").query([])["content"] == "done"
+
+
+def test_llama_cpp_reassembles_evidently_fragmented_sse_record(monkeypatch):
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *args, **kwargs: RawResponse([
+            'data: {"choices":[{"delta":{"content":"part',
+            'data: ial"}}]}',
+            "data: [DONE]",
+        ]),
+    )
+    assert LlamaCppModel(model_name="local", response_streaming="off").query([])["content"] == "partial"
+
+
+def test_llama_cpp_rejects_malformed_sse_json_with_diagnostics(monkeypatch):
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *args, **kwargs: RawResponse(["data: {not json}"]),
+    )
+    with pytest.raises(ModelStreamError, match="Malformed JSON") as exc_info:
+        LlamaCppModel(model_name="local", response_streaming="off").query([])
+    assert exc_info.value.diagnostics["line"] == 1
+    assert exc_info.value.diagnostics["payload_fragment"] == "{not json}"
+    assert "Expecting property name" in exc_info.value.diagnostics["parser_error"]
+
+
+def test_llama_cpp_reports_truncated_final_sse_record(monkeypatch):
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *args, **kwargs: RawResponse(['data: {"choices":[{"delta":{"content":"partial']),
+    )
+    with pytest.raises(ModelStreamError, match="stream ended") as exc_info:
+        LlamaCppModel(model_name="local", response_streaming="off").query([])
+    assert exc_info.value.diagnostics["payload_fragment"].endswith('"partial')
+
+
+def test_llama_cpp_reports_disconnected_stream_with_diagnostics(monkeypatch):
+    error = requests.exceptions.ChunkedEncodingError("connection reset")
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *args, **kwargs: RawResponse([], error=error),
+    )
+    with pytest.raises(ModelStreamError, match="stream disconnected") as exc_info:
+        LlamaCppModel(model_name="local", response_streaming="off").query([])
+    assert exc_info.value.diagnostics["parser_error"] == "connection reset"
+
+
+def test_model_stream_error_is_saved_in_trajectory(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "minisweagent.models.llama_cpp_model.requests.post",
+        lambda *args, **kwargs: RawResponse(["data: {not json}"]),
+    )
+    output_path = tmp_path / "stream-error.json"
+    agent = DefaultAgent(
+        model=LlamaCppModel(model_name="local", response_streaming="off"),
+        env=LocalEnvironment(),
+        system_template="System",
+        instance_template="{{task}}",
+        output_path=output_path,
+    )
+
+    with pytest.raises(ModelStreamError):
+        agent.run("Inspect the stream")
+
+    trajectory = json.loads(output_path.read_text())
+    extra = trajectory["messages"][-1]["extra"]
+    assert extra["exit_status"] == "ModelStreamError"
+    assert extra["model_stream"]["payload_fragment"] == "{not json}"
 
 
 def test_nemotron_empty_and_unknown_calls_have_specific_recovery_feedback():

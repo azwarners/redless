@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 import requests
 
+from minisweagent.exceptions import ModelStreamError
 from minisweagent.models.litellm_model import LitellmModelConfig
 from minisweagent.models.llama_log import format_llama_server_stats, read_llama_server_log
 from minisweagent.models.utils.actions_toolcall import (
@@ -40,6 +41,8 @@ class _ToolCall:
 
 class LlamaCppModel:
     """Use llama-server directly; LiteLLM is deliberately not involved."""
+
+    _STREAM_FRAGMENT_LIMIT = 1200
 
     def __init__(self, **kwargs):
         self.config = LlamaCppModelConfig(**kwargs)
@@ -81,6 +84,17 @@ class LlamaCppModel:
             print(part, file=sys.stderr, end="", flush=True)
             if part.endswith(("\n", "\r")):
                 state["open"] = False
+
+    @classmethod
+    def _stream_fragment(cls, payload: str) -> str:
+        if len(payload) <= cls._STREAM_FRAGMENT_LIMIT:
+            return payload
+        half = cls._STREAM_FRAGMENT_LIMIT // 2
+        return f"{payload[:half]}…<truncated {len(payload) - 2 * half} chars>…{payload[-half:]}"
+
+    @staticmethod
+    def _looks_incomplete(error: json.JSONDecodeError, payload: str) -> bool:
+        return error.msg.startswith("Unterminated string") or error.pos >= len(payload.rstrip())
 
     def query(self, messages: list[dict[str, str]], **kwargs) -> dict:
         started = time.monotonic()
@@ -146,25 +160,91 @@ class LlamaCppModel:
                     call.function.arguments += function.get("arguments") or ""
 
         saw_chunk = False
-        for raw_line in response.iter_lines(decode_unicode=True):
-            if not raw_line:
-                continue
-            line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
-            line = line.lstrip()
-            if line.startswith(("event:", "id:", "retry:", ":")):
-                continue
-            if line.startswith("data:"):
-                payload = line[5:].strip()
-                if payload == "[DONE]":
-                    break
-            else:
-                # Be liberal with OpenAI-compatible servers that ignore
-                # ``stream=true`` and return one ordinary JSON response.
-                payload = line.strip()
-            if not payload:
-                continue
-            consume_chunk(json.loads(payload))
-            saw_chunk = True
+        pending_payload = ""
+        pending_line = 0
+
+        def stream_error(message: str, *, payload: str, line_number: int, error: Exception | None = None) -> ModelStreamError:
+            diagnostics: dict[str, str | int] = {
+                "line": line_number,
+                "payload_fragment": self._stream_fragment(payload),
+            }
+            if error:
+                diagnostics["parser_error"] = str(error)
+            return ModelStreamError(message, diagnostics)
+
+        def consume_payload(payload: str, line_number: int) -> bool:
+            try:
+                consume_chunk(json.loads(payload))
+            except json.JSONDecodeError as error:
+                if self._looks_incomplete(error, payload):
+                    return False
+                raise stream_error(
+                    "Malformed JSON in llama.cpp SSE record.", payload=payload, line_number=line_number, error=error
+                ) from error
+            return True
+
+        try:
+            for line_number, raw_line in enumerate(response.iter_lines(decode_unicode=True), start=1):
+                if not raw_line:
+                    if pending_payload:
+                        raise stream_error(
+                            "llama.cpp SSE record ended before its JSON payload was complete.",
+                            payload=pending_payload,
+                            line_number=pending_line,
+                        )
+                    continue
+                line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
+                line = line.lstrip()
+                if line.startswith(("event:", "id:", "retry:", ":")):
+                    continue
+                if line.startswith("data:"):
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        if pending_payload:
+                            raise stream_error(
+                                "llama.cpp ended the SSE stream before its JSON payload was complete.",
+                                payload=pending_payload,
+                                line_number=pending_line,
+                            )
+                        break
+                else:
+                    # Be liberal with OpenAI-compatible servers that ignore
+                    # ``stream=true`` and return one ordinary JSON response.
+                    payload = line.strip()
+                if not payload:
+                    continue
+                if pending_payload:
+                    # A later data line is only treated as a continuation when it
+                    # cannot plausibly begin a fresh JSON event. This permits a
+                    # server that split one record across parser-visible lines,
+                    # without merging independent malformed events.
+                    if payload.startswith(("{", "[")):
+                        raise stream_error(
+                            "llama.cpp started a new SSE record before the previous JSON payload was complete.",
+                            payload=pending_payload,
+                            line_number=pending_line,
+                        )
+                    payload = pending_payload + payload
+                    line_number = pending_line
+                    pending_payload = ""
+                if consume_payload(payload, line_number):
+                    saw_chunk = True
+                else:
+                    pending_payload = payload
+                    pending_line = line_number
+        except requests.RequestException as error:
+            raise stream_error(
+                "llama.cpp stream disconnected before the response completed.",
+                payload=pending_payload,
+                line_number=pending_line,
+                error=error,
+            ) from error
+        if pending_payload:
+            raise stream_error(
+                "llama.cpp stream ended before its JSON payload was complete.",
+                payload=pending_payload,
+                line_number=pending_line,
+            )
         if not saw_chunk and hasattr(response, "json"):
             body = response.json()
             if isinstance(body, dict):
