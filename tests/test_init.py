@@ -31,7 +31,7 @@ def test_default_global_config_is_fork_owned(tmp_path):
         env=env,
         check=True,
     )
-    assert result.stdout.strip().endswith("mini-swe-agent-slow")
+    assert result.stdout.strip().endswith("redless")
     assert "mini-swe-agent\n" not in result.stdout
 
 

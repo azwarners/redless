@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 
 [project]
-name = "mini-swe-agent-slow"
+name = "redless"
 dynamic = ["version"]
-description = "mini-swe-agent-slow - a slow-inference-focused fork of mini-SWE-agent"
+description = "REDLESS - a slow-inference-focused fork of mini-SWE-agent"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE.md"}
@@ -49,10 +49,10 @@ dependencies = [
 
 [project.optional-dependencies]
 full = [
-    "mini-swe-agent-slow[dev]",
+    "redless[dev]",
     "swe-rex>=1.4.0",
-    "mini-swe-agent-slow[modal]",
-    "mini-swe-agent-slow[contree]",
+    "redless[modal]",
+    "redless[contree]",
 ]
 
 modal = [
@@ -82,18 +82,17 @@ contree = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/azwarners/mini-swe-agent-slow#readme"
-Repository = "https://github.com/azwarners/mini-swe-agent-slow"
-"Bug Tracker" = "https://github.com/azwarners/mini-swe-agent-slow/issues"
+Documentation = "https://github.com/azwarners/redless#readme"
+Repository = "https://github.com/azwarners/redless"
+"Bug Tracker" = "https://github.com/azwarners/redless/issues"
 
 [project.scripts]
+redless = "minisweagent.run.mini:app"
 mini = "minisweagent.run.mini:app"
 mini-swe-agent = "minisweagent.run.mini:app"
-mini-slow = "minisweagent.run.mini:app"
-mini-swe-agent-slow = "minisweagent.run.mini:app"
-mini-slow-workspace = "minisweagent.run.workspace:app"
+redless-workspace = "minisweagent.run.workspace:app"
 mini-extra = "minisweagent.run.utilities.mini_extra:main"
-mini-e= "minisweagent.run.utilities.mini_extra:main"
+mini-e = "minisweagent.run.utilities.mini_extra:main"
 
 [tool.setuptools]
 include-package-data = true

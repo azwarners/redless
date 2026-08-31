@@ -63,12 +63,12 @@ class LlamaCppModel:
     @staticmethod
     def _print(message: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
-        print(f"[{timestamp}] [mini-swe-agent-slow] {message}", file=sys.stderr, flush=True)
+        print(f"[{timestamp}] [REDLESS] {message}", file=sys.stderr, flush=True)
 
     @staticmethod
     def _print_stream_prefix(label: str) -> None:
         timestamp = time.strftime("%H:%M:%S")
-        print(f"[{timestamp}] [mini-swe-agent-slow] {label}: ", file=sys.stderr, end="", flush=True)
+        print(f"[{timestamp}] [REDLESS] {label}: ", file=sys.stderr, end="", flush=True)
 
     @classmethod
     def _stream_text(cls, label: str, text: str, state: dict[str, Any]) -> None:

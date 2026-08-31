@@ -124,9 +124,9 @@ def test_help_identifies_the_fork():
         [sys.executable, "-m", "minisweagent.run.mini", "--help"], capture_output=True, text=True, check=True
     )
     clean_output = strip_ansi_codes(result.stdout + result.stderr)
-    assert "mini-swe-agent-slow" in clean_output
-    assert "Recommended command: mini-slow" in clean_output
-    assert "github.com/azwarners/mini-swe-agent-slow" in clean_output
+    assert "Redless" in clean_output
+    assert "Recommended command: redless" in clean_output
+    assert "github.com/azwarners/redless" in clean_output
 
 
 def test_mini_calls_prompt_when_no_task_provided():

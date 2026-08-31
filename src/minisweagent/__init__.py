@@ -8,10 +8,11 @@ This file provides:
   unless you want the static type checking.
 """
 
-FORK_NAME = "mini-swe-agent-slow"
+FORK_NAME = "redless"
+FORK_DISPLAY_NAME = "Redless"
 __version__ = "2.4.6+slow.1"
 UPSTREAM_VERSION = "2.4.6"
-FORK_REPOSITORY_URL = "https://github.com/azwarners/mini-swe-agent-slow"
+FORK_REPOSITORY_URL = "https://github.com/azwarners/redless"
 
 import os
 from pathlib import Path
@@ -32,7 +33,7 @@ global_config_file = Path(global_config_dir) / ".env"
 
 if not os.getenv("MSWEA_SILENT_STARTUP"):
     Console().print(
-        f"This is [bold green]{FORK_NAME}[/bold green], a fork of mini-SWE-agent, "
+        f"This is [bold green]{FORK_DISPLAY_NAME}[/bold green], a fork of mini-SWE-agent, "
         f"version [bold green]{__version__}[/bold green] (upstream {UPSTREAM_VERSION}).\n"
         f"Loading global config from [bold green]'{global_config_file}'[/bold green]",
     )
@@ -91,6 +92,7 @@ __all__ = [
     "Environment",
     "package_dir",
     "FORK_NAME",
+    "FORK_DISPLAY_NAME",
     "FORK_REPOSITORY_URL",
     "__version__",
     "UPSTREAM_VERSION",

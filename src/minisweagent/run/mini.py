@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Run mini-swe-agent-slow in your local environment."""
+"""Run REDLESS in your local environment."""
 
 import os
 from pathlib import Path
@@ -9,7 +9,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from minisweagent import FORK_NAME, FORK_REPOSITORY_URL, global_config_dir
+from minisweagent import FORK_DISPLAY_NAME, FORK_REPOSITORY_URL, global_config_dir
 from minisweagent.agents import get_agent
 from minisweagent.agents.utils.prompt_user import _multiline_prompt
 from minisweagent.config import builtin_config_dir, get_config_from_spec
@@ -19,14 +19,14 @@ from minisweagent.run.utilities.config import configure_if_first_time
 from minisweagent.utils.serialize import UNSET, recursive_merge
 
 DEFAULT_CONFIG_FILE = Path(os.getenv("MSWEA_MINI_CONFIG_PATH", builtin_config_dir / "mini.yaml"))
-DEFAULT_OUTPUT_FILE = global_config_dir / "last_mini_run.traj.json"
+DEFAULT_OUTPUT_FILE = global_config_dir / "last_redless_run.traj.json"
 
 
-_HELP_TEXT = f"""Run {FORK_NAME} in your local environment.
+_HELP_TEXT = f"""Run {FORK_DISPLAY_NAME} in your local environment.
 
 Run mini-SWE-agent in your local environment.
 
-[bold yellow]Recommended command: mini-slow[/bold yellow]
+[bold yellow]Recommended command: redless[/bold yellow]
 
 [not dim]
 Fork documentation and source: [bold green]{FORK_REPOSITORY_URL}[/bold green]

@@ -2,14 +2,14 @@
 
 * `mini.yaml` - Compatibility-default config for the interactive agent.
 * `default.yaml` - Default config for the `default.py` agent.
-* `slow_local.yaml` - Recommended fork profile for `mini-slow`: tool-call mode,
+* `slow_local.yaml` - Recommended REDLESS profile: tool-call mode,
   visible progress (including a pending-request update every minute), a 10-minute Bash timeout, separate connection/read timeouts, no
   automatic request replay, no local cost lookup, and compact tool output.
 
-`slow_local.yaml` is designed for local llama.cpp servers. It uses the fork's direct
+`slow_local.yaml` is designed for local llama.cpp servers. It uses REDLESS's direct
 `llama_cpp` transport (not LiteLLM), so streamed draft tokens can be shown while a
 request is running. Set `model_name` and the endpoint in a small local settings file, then run
-`mini-slow -c slow_local.yaml -c llama-local.yaml`. Its `max_retries: 0` default
+`redless -c slow_local.yaml -c llama-local.yaml`. Its `max_retries: 0` default
 avoids replaying an expensive or ambiguous generation, while `tool_output` limits
 only live tool observations; raw output remains available in the trajectory.
 The shipped profile has no model-call limit; set `agent.step_limit` to a positive

@@ -4,60 +4,60 @@
 
     === "pip"
 
-        Install the fork in your current environment:
+        Install REDLESS in your current environment:
 
         ```bash
-        pip install mini-swe-agent-slow
+        pip install redless
         ```
 
         And try our command line interface
 
         ```bash
-        mini-slow  # recommended CLI
+        redless  # recommended CLI
         mini-extra  # extra utilities
         ```
 
     === "uv (isolated)"
 
-        Use `uv`/`uvx` ([installation](https://docs.astral.sh/uv/getting-started/installation/)) to directly run the `mini-slow` CLI.
+        Use `uv`/`uvx` ([installation](https://docs.astral.sh/uv/getting-started/installation/)) to directly run the `redless` CLI.
         Use this if you're only interested in the CLI but don't need Python bindings.
 
         Quickly install + run:
 
         ```bash
-        uvx mini-swe-agent-slow  # CLI
-        uvx --from mini-swe-agent-slow mini-extra  # extra utilities
+        uvx redless  # CLI
+        uvx --from redless mini-extra  # extra utilities
         ```
 
         Permanently install
 
         ```bash
-        uv tool install mini-swe-agent-slow
+        uv tool install redless
         # then
-        mini-slow  # recommended CLI
+        redless  # recommended CLI
         mini-extra  # extra utilities
         ```
 
     === "pipx (isolated)"
 
-        Use pipx ([installation](https://pipx.pypa.io/stable/installation/)) to directly run the `mini-slow` CLI.
+        Use pipx ([installation](https://pipx.pypa.io/stable/installation/)) to directly run the `redless` CLI.
         Use this if you're only interested in the CLI but don't need Python bindings.
 
         Quick install + run:
 
         ```bash
         # CLI
-        pipx run mini-swe-agent-slow
+        pipx run redless
         # Extra utilities
-        pipx run --spec mini-swe-agent-slow mini-extra
+        pipx run --spec redless mini-extra
         ```
 
         or for a persistent installation (recommended):
 
         ```bash
-        pipx install mini-swe-agent-slow
+        pipx install redless
         # then
-        mini-slow  # recommended CLI
+        redless  # recommended CLI
         mini-extra  # extra utilities
         ```
 
@@ -68,15 +68,15 @@
         For development or if you want to customize the agent:
 
         ```bash
-        git clone https://github.com/azwarners/mini-swe-agent-slow.git
-        cd mini-swe-agent-slow
+        git clone https://github.com/azwarners/redless.git
+        cd redless
         pip install -e .
         ```
 
         Then run:
 
         ```bash
-        mini-slow  # recommended CLI
+        redless  # recommended CLI
         mini-extra  # extra utilities
         ```
 
@@ -103,12 +103,12 @@
 
 !!! note "Fork identity"
 
-    `mini-swe-agent-slow` is a fork of mini-SWE-agent. Use `mini-slow` to make the
+    REDLESS is a fork of mini-SWE-agent. Use `redless` to make the
     selected fork explicit and keep its state in the fork-owned config directory.
 
 !!! example "Example Prompts"
 
-    Try mini-SWE-agent with these example prompts:
+    Try REDLESS with these example prompts:
 
     - Implement a Sudoku solver in python in the `sudoku` folder. Make sure the codebase is modular and well tested with pytest.
     - Please run pytest on the current project, discover failing unittests and help me fix them. Always make sure to test the final solution.
@@ -116,7 +116,7 @@
 
 ## Models
 
-!!! note "Models should be set up the first time you run `mini-slow`"
+!!! note "Models should be set up the first time you run `redless`"
 
     * If you missed the setup wizard, just run `mini-extra config setup`
     * For more information, please check the [model setup quickstart](models/quickstart.md).

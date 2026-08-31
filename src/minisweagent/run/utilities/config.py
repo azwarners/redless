@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Manage the mini-swe-agent-slow global config file.
+"""Manage the REDLESS global config file.
 
 You can also directly edit the `.env` file in the config directory.
 
@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.rule import Rule
 from typer import Argument, Typer
 
-from minisweagent import FORK_NAME, FORK_REPOSITORY_URL, global_config_file
+from minisweagent import FORK_DISPLAY_NAME, FORK_REPOSITORY_URL, global_config_file
 
 
 def _reload_config():
@@ -31,7 +31,7 @@ app = Typer(
 console = Console(highlight=False)
 
 
-_SETUP_HELP = f"""To get started with {FORK_NAME}, we need to set up your fork-owned global config file.
+_SETUP_HELP = f"""To get started with {FORK_DISPLAY_NAME}, we need to set up your fork-owned global config file.
 
 You can edit it manually or use the [bold green]mini-extra config set[/bold green] or [bold green]mini-extra config edit[/bold green] commands.
 

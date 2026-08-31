@@ -28,7 +28,7 @@ from minisweagent.utils.serialize import UNSET, recursive_merge
 _HELP_TEXT = """Run mini-SWE-agent on SWEBench instances.
 
 [not dim]
-Fork source and documentation: [bold green]https://github.com/azwarners/mini-swe-agent-slow[/bold green]
+Fork source and documentation: [bold green]https://github.com/azwarners/redless[/bold green]
 [/not dim]
 """
 

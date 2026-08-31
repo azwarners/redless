@@ -2,7 +2,7 @@
 
 !!! note "ConTree Environment class"
 
-    - [Read on GitHub](https://github.com/azwarners/mini-swe-agent-slow/blob/main/src/minisweagent/environments/extra/contree.py)
+    - [Read on GitHub](https://github.com/azwarners/redless/blob/main/src/minisweagent/environments/extra/contree.py)
     - Requires [ConTree](https://contree.dev) token
 
     ??? note "Full source code"
@@ -19,7 +19,7 @@ This environment executes commands in [ConTree](https://contree.dev) sandboxes u
 
 1. Install the dependencies:
    ```bash
-   pip install "mini-swe-agent-slow[contree]"
+   pip install "redless[contree]"
    ```
 
 2. Set up ConTree token and base_url:

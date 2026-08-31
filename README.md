@@ -2,11 +2,11 @@
 
 Reusable Extendable Digital Labor Execution Software Subsystem
 
-`mini-swe-agent-slow` is a small coding agent for local AI models. It is designed
+REDLESS is a small coding agent for local AI models. It is designed
 for machines where asking the model for another response is slow, but searching files,
 running tests, and using Git are cheap.
 
-It is a fork of [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent). The
+REDLESS is a fork of [mini-SWE-agent](https://github.com/SWE-agent/mini-swe-agent). The
 agent stays intentionally small: one model, one repository, and ordinary command-line
 tools. It is being tested with local models served by llama.cpp, including Kimi Code
 and MiniMax-M3.
@@ -23,12 +23,12 @@ For the example below, llama.cpp is already running at
 
 ## Install
 
-Clone this fork and install it in a virtual environment. Use `mini-slow`, not a
+Clone this fork and install it in a virtual environment. Use `redless`, not a
 separately installed upstream `mini` command.
 
 ```bash
-git clone https://github.com/azwarners/mini-swe-agent-slow.git
-cd mini-swe-agent-slow
+git clone https://github.com/azwarners/redless.git
+cd redless
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -38,11 +38,11 @@ python -m pip install -e .
 Check that you are running this fork:
 
 ```bash
-mini-slow --help
+redless --help
 ```
 
-The first line should say `mini-swe-agent-slow`. By default, the fork keeps its own
-settings and last-run file in `~/.config/mini-swe-agent-slow/`; it does not use the
+The first line should say `REDLESS`. By default, REDLESS keeps its own
+settings and last-run file in `~/.config/redless/`; it does not use the
 upstream mini-SWE-agent directory.
 
 ## First local-model run
@@ -55,7 +55,7 @@ the agent to inspect the repository you are currently in.
 For an existing project, clone it and add your local-model settings with one command:
 
 ```bash
-mini-slow-workspace clone https://github.com/OWNER/REPOSITORY.git \
+redless-workspace clone https://github.com/OWNER/REPOSITORY.git \
   ~/mini-workspaces/project \
   --model YOUR_MODEL_NAME \
   --api-base http://127.0.0.1:8080/v1
@@ -64,7 +64,7 @@ mini-slow-workspace clone https://github.com/OWNER/REPOSITORY.git \
 For a new task, create a safe empty workspace instead:
 
 ```bash
-mini-slow-workspace init ~/mini-workspaces/first-task \
+redless-workspace init ~/mini-workspaces/first-task \
   --model YOUR_MODEL_NAME \
   --api-base http://127.0.0.1:8080/v1
 ```
@@ -79,16 +79,16 @@ cd ~/mini-workspaces/first-task
 ### 2. Create or check local model settings
 
 This file is just your local server address and model name. It is not special, and it
-does not need to be committed. If you used `mini-slow-workspace`, it already exists.
+does not need to be committed. If you used `redless-workspace`, it already exists.
 Otherwise, create it inside the target repository:
 
 ```bash
-mkdir -p .mini-swe-agent-slow
-cat > .mini-swe-agent-slow/llama-local.yaml <<'EOF'
+mkdir -p .redless
+cat > .redless/llama-local.yaml <<'EOF'
 model:
   model_name: "YOUR_MODEL_NAME"
   response_streaming: draft
-  llama_log_path: ".mini-swe-agent-slow/llama-server.log"
+  llama_log_path: ".redless/llama-server.log"
   model_kwargs:
     api_base: "http://127.0.0.1:8080/v1"
     api_key: "llama.cpp-placeholder"
@@ -107,7 +107,7 @@ unauthenticated llama.cpp server. If your server requires a real key, put it in 
 file and keep the file out of Git:
 
 ```bash
-printf '.mini-swe-agent-slow/\n' >> .git/info/exclude
+printf '.redless/\n' >> .git/info/exclude
 ```
 
 ### 3. Capture llama.cpp server output
@@ -116,14 +116,14 @@ Start `llama-server` from the target repository and tee its output into the
 workspace directory. Replace the model path and server options as needed:
 
 ```bash
-mkdir -p .mini-swe-agent-slow
+mkdir -p .redless
 llama-server \
   --model /path/to/GLM-5.2-754B.gguf \
   --host 127.0.0.1 --port 8080 \
-  2>&1 | tee -a .mini-swe-agent-slow/llama-server.log
+  2>&1 | tee -a .redless/llama-server.log
 ```
 
-Keep that process running in its own terminal. `mini-swe-agent-slow` only reads the
+Keep that process running in its own terminal. REDLESS only reads the
 log; it does not start, redirect, truncate, or modify the server process. The
 `llama_log_path` setting above makes each completed response report context usage,
 prompt-evaluation speed, generation speed, total time, and graph reuse when those
@@ -136,24 +136,24 @@ Run this from the target repository. The first `-c` selects the fork's built-in
 slow-local settings. The second `-c` selects the file you just created.
 
 ```bash
-MSWEA_CONFIGURED=true mini-slow \
+MSWEA_CONFIGURED=true redless \
   -c slow_local.yaml \
-  -c .mini-swe-agent-slow/llama-local.yaml \
+  -c .redless/llama-local.yaml \
   -t 'Inspect this repository and describe its top-level architecture.' \
-  -o ./mini-slow-run.traj.json
+  -o ./redless-run.traj.json
 ```
 
 `MSWEA_CONFIGURED=true` skips the optional first-time setup questions for hosted
 providers; your local settings file already supplies what this run needs. The saved
-`mini-slow-run.traj.json` file records the conversation, commands, and timings. The
+`redless-run.traj.json` file records the conversation, commands, and timings. The
 terminal shows when the model is working, when an action runs, and the final answer.
 
 For a code change, give a direct task and ask for validation:
 
 ```bash
-MSWEA_CONFIGURED=true mini-slow \
+MSWEA_CONFIGURED=true redless \
   -c slow_local.yaml \
-  -c .mini-swe-agent-slow/llama-local.yaml \
+  -c .redless/llama-local.yaml \
   -t 'Change greeting() to return "hello, slow world". Update its test, run pytest, and show the Git diff.'
 ```
 
@@ -181,7 +181,7 @@ processing and generation have no fork-imposed deadline by default.
 
 ## Useful settings
 
-Most users only need to edit `.mini-swe-agent-slow/llama-local.yaml`:
+Most users only need to edit `.redless/llama-local.yaml`:
 
 | If you need to change… | Change this setting |
 | --- | --- |
@@ -228,16 +228,16 @@ The shipped profile uses the lossless `agent.context_mode=full`. Projection can 
 measured explicitly with `-c agent.context_mode=projected`; it changes only the
 temporary model input and preserves the full trajectory and deterministic ledger.
 
-While a model request is pending, `mini-slow` prints an update every minute. This confirms
+While a model request is pending, `redless` prints an update every minute. This confirms
 that the client request is still open; it does not claim the server is actively generating
 tokens. Set `agent.progress_interval_seconds=0` in an additional `-c` option to disable it.
 
 To change a setting for one run, add another `-c` argument:
 
 ```bash
-MSWEA_CONFIGURED=true mini-slow \
+MSWEA_CONFIGURED=true redless \
   -c slow_local.yaml \
-  -c .mini-swe-agent-slow/llama-local.yaml \
+  -c .redless/llama-local.yaml \
   -c environment.timeout=1200 \
   -t 'Run the relevant tests and report failures.'
 ```
@@ -248,7 +248,7 @@ Install the development tools, then run the tests:
 
 ```bash
 python -m pip install -e '.[dev]'
-XDG_CONFIG_HOME=/tmp/mini-swe-agent-slow-tests pytest -q
+XDG_CONFIG_HOME=/tmp/redless-tests pytest -q
 ```
 
 These tests do not contact your model server. There is no checked-in live llama.cpp

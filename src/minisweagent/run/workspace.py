@@ -13,11 +13,11 @@ console = Console(highlight=False)
 
 @app.callback()
 def main():
-    """Set up a disposable workspace for mini-swe-agent-slow."""
+    """Set up a disposable workspace for REDLESS."""
 
 
 def _configure_workspace(path: Path, model: str, api_base: str, api_key: str):
-    settings_path = path / ".mini-swe-agent-slow" / "llama-local.yaml"
+    settings_path = path / ".redless" / "llama-local.yaml"
     settings_path.parent.mkdir()
     settings_path.write_text(
         yaml.safe_dump(
@@ -31,12 +31,12 @@ def _configure_workspace(path: Path, model: str, api_base: str, api_key: str):
         )
     )
     exclude_path = path / ".git" / "info" / "exclude"
-    exclude_path.write_text(exclude_path.read_text() + "\n.mini-swe-agent-slow/\n")
+    exclude_path.write_text(exclude_path.read_text() + "\n.redless/\n")
     console.print(f"[bold green]Workspace ready:[/bold green] {path}")
     console.print("\nNext, run:")
     console.print(
-        f"cd {path}\nMSWEA_CONFIGURED=true mini-slow -c slow_local.yaml "
-        "-c .mini-swe-agent-slow/llama-local.yaml -t 'Describe the task here.'"
+        f"cd {path}\nMSWEA_CONFIGURED=true redless -c slow_local.yaml "
+        "-c .redless/llama-local.yaml -t 'Describe the task here.'"
     )
 
 

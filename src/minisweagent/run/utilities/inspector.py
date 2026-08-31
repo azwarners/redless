@@ -2,7 +2,7 @@
 """
 Simple trajectory inspector for browsing agent conversation trajectories.
 
-Fork documentation: [bold green]https://github.com/azwarners/mini-swe-agent-slow[/bold green].
+Fork documentation: [bold green]https://github.com/azwarners/redless[/bold green].
 """
 
 import json

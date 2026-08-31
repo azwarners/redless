@@ -206,7 +206,7 @@ class DefaultAgent:
 
     def _progress(self, message: str, *, end: str = "\n") -> None:
         if self.config.show_progress:
-            print(f"[{time.strftime('%H:%M:%S')}] [mini-swe-agent-slow] {message}", file=sys.stderr, end=end, flush=True)
+            print(f"[{time.strftime('%H:%M:%S')}] [REDLESS] {message}", file=sys.stderr, end=end, flush=True)
 
     def _progress_append(self, message: str) -> None:
         if self.config.show_progress:
@@ -248,7 +248,7 @@ class DefaultAgent:
             return
         trajectory = str(self.config.output_path) if self.config.output_path else "<not configured>"
         print(
-            f"[{time.strftime('%H:%M:%S')}] [mini-swe-agent-slow] WARNING: model-call threshold reached; "
+            f"[{time.strftime('%H:%M:%S')}] [REDLESS] WARNING: model-call threshold reached; "
             f"calls={self.n_calls}, cumulative_model_time={self.model_elapsed_seconds:.1f}s, "
             f"trajectory={trajectory}. This is a warning, not an error; inspect the saved "
             "trajectory or interrupt deliberately if needed.",

@@ -46,7 +46,7 @@ def test_agent_save_includes_class_names():
         assert saved_data["info"]["exit_status"] == "Submitted"
         assert saved_data["info"]["submission"] == "test result"
         assert saved_data["trajectory_format"] == "mini-swe-agent-1.1"
-        assert saved_data["info"]["fork_name"] == "mini-swe-agent-slow"
+        assert saved_data["info"]["fork_name"] == "redless"
         assert saved_data["info"]["upstream_version"] == "2.4.6"
 
 
