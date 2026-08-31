@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import litellm
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from minisweagent.exceptions import FormatError
 from minisweagent.models import GLOBAL_MODEL_STATS
@@ -50,6 +50,8 @@ class LitellmModelConfig(BaseModel):
     """TCP/TLS connection deadline only; it does not limit request reads or generation."""
     model_timeout_seconds: int = Field(default=0, ge=0)
     """Read deadline. Zero means no mini-SWE-agent-imposed prefill or generation deadline."""
+    llama_log_path: Path | str | None = None
+    """Optional externally captured llama-server log path for operator analysis."""
     max_retries: int = Field(default=0, ge=0)
     """LiteLLM/OpenAI-compatible retries after the original request. Slow-local defaults to zero."""
     tool_output: dict[str, int] = Field(
@@ -58,9 +60,21 @@ class LitellmModelConfig(BaseModel):
             "head_chars": 1200,
             "tail_chars": 3600,
             "error_tail_chars": 4800,
+            "max_turn_chars": 0,
+            "minimum_chars_per_observation": 256,
         }
     )
     """Character budget for tool observations only; it never truncates model responses."""
+
+    @field_validator("tool_output")
+    @classmethod
+    def validate_tool_output(cls, value: dict[str, int]) -> dict[str, int]:
+        minimum = value.get("minimum_chars_per_observation", 256)
+        if minimum < 64:
+            raise ValueError("tool_output.minimum_chars_per_observation must be at least 64")
+        if value.get("max_turn_chars", 0) < 0:
+            raise ValueError("tool_output.max_turn_chars must be non-negative")
+        return value
 
 
 class LitellmModel:

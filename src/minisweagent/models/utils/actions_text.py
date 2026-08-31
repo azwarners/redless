@@ -10,7 +10,7 @@ from jinja2 import StrictUndefined, Template
 
 from minisweagent.exceptions import FormatError
 from minisweagent.models.utils.openai_multimodal import expand_multimodal_content
-from minisweagent.utils.output import shape_output
+from minisweagent.utils.output import shape_outputs_for_turn
 
 
 def parse_regex_actions(
@@ -50,13 +50,15 @@ def format_observation_messages(
     output_config: dict | None = None,
 ) -> list[dict]:
     """Format execution outputs into user observation messages."""
-    results = []
-    for output in outputs:
-        raw_output = output.get("output", "")
-        output = shape_output(output, **(output_config or {}))
-        content = Template(observation_template, undefined=StrictUndefined).render(
+    def render(output: dict) -> str:
+        return Template(observation_template, undefined=StrictUndefined).render(
             output=output, **(template_vars or {})
         )
+    results = []
+    shaped_outputs = shape_outputs_for_turn(outputs, output_config, render=render)
+    for source, output in zip(outputs, shaped_outputs):
+        raw_output = source.get("output", "")
+        content = render(output)
         msg: dict = {
             "role": "user",
             "content": content,
@@ -69,6 +71,9 @@ def format_observation_messages(
                 "duration_seconds": output.get("duration_seconds"),
                 "truncated": output.get("truncated", False),
                 "original_chars": output.get("original_chars"),
+                "displayed_chars": output.get("displayed_chars"),
+                "turn_budget": output.get("turn_budget", 0),
+                "turn_truncated": output.get("turn_truncated", False),
                 **output.get("extra", {}),
             },
         }

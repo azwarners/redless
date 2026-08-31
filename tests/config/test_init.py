@@ -144,6 +144,9 @@ class TestGetConfigFromSpec:
         assert "command validations in one Bash action" in config["agent"]["system_template"]
         assert "Never stage a file just to" in config["agent"]["system_template"]
         assert "Make validation\ndeterministic" in config["agent"]["system_template"]
+        assert "For review or analysis tasks, search once" in config["agent"]["system_template"]
+        assert config["agent"]["call_warning_threshold"] == 8
+        assert config["agent"]["model_time_warning_seconds"] == 1800
 
 
 _ALL_BUILTIN_CONFIGS = list(builtin_config_dir.rglob("*.yaml"))

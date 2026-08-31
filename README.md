@@ -1,4 +1,6 @@
-# mini-swe-agent-slow
+# REDLESS
+
+Reusable Extendable Digital Labor Execution Software Subsystem
 
 `mini-swe-agent-slow` is a small coding agent for local AI models. It is designed
 for machines where asking the model for another response is slow, but searching files,
@@ -85,8 +87,9 @@ mkdir -p .mini-swe-agent-slow
 cat > .mini-swe-agent-slow/llama-local.yaml <<'EOF'
 model:
   model_name: "YOUR_MODEL_NAME"
+  response_streaming: draft
+  llama_log_path: ".mini-swe-agent-slow/llama-server.log"
   model_kwargs:
-    custom_llm_provider: "openai"
     api_base: "http://127.0.0.1:8080/v1"
     api_key: "llama.cpp-placeholder"
 EOF
@@ -107,7 +110,27 @@ file and keep the file out of Git:
 printf '.mini-swe-agent-slow/\n' >> .git/info/exclude
 ```
 
-### 3. Run the agent
+### 3. Capture llama.cpp server output
+
+Start `llama-server` from the target repository and tee its output into the
+workspace directory. Replace the model path and server options as needed:
+
+```bash
+mkdir -p .mini-swe-agent-slow
+llama-server \
+  --model /path/to/GLM-5.2-754B.gguf \
+  --host 127.0.0.1 --port 8080 \
+  2>&1 | tee -a .mini-swe-agent-slow/llama-server.log
+```
+
+Keep that process running in its own terminal. `mini-swe-agent-slow` only reads the
+log; it does not start, redirect, truncate, or modify the server process. The
+`llama_log_path` setting above makes each completed response report context usage,
+prompt-evaluation speed, generation speed, total time, and graph reuse when those
+lines are present. The log may contain sensitive prompt/server details, so keep the
+workspace directory excluded from Git.
+
+### 4. Run the agent
 
 Run this from the target repository. The first `-c` selects the fork's built-in
 slow-local settings. The second `-c` selects the file you just created.
@@ -165,12 +188,49 @@ Most users only need to edit `.mini-swe-agent-slow/llama-local.yaml`:
 | Model name | `model.model_name` |
 | Server address | `model.model_kwargs.api_base` |
 | Server key | `model.model_kwargs.api_key` |
+| Stream tokens | `model.response_streaming` (`draft`, `status`, or `off`) |
+| Model tool protocol | `model.tool_protocol` (`openai`) |
+| llama.cpp log | `model.llama_log_path` |
 | Default test/build timeout | `environment.timeout` |
 
 `slow_local.yaml` is included with the fork. It is deliberately conservative for a
 slow server: it allows a 30-second connection attempt, does not replay uncertain model
 requests, and keeps command output compact so logs do not fill the next model prompt.
-It does not shorten useful model-written reports or plans.
+Each observation is capped at 6,000 characters and one turn is capped at 12,000
+observation characters, with a 256-character minimum reservation per result. It does
+not shorten useful model-written reports or plans.
+
+The slow profile warns once after 8 model calls or 1,800 cumulative model seconds.
+Warnings include the trajectory path and are informational only; they do not stop or
+alter the run.
+
+The shipped profile has no model-call limit. Set `agent.step_limit` to a positive
+number when a run should have a ceiling. Action progress is printed as a single
+timestamped line followed by a one-line description of the command or file operation.
+Pending-request heartbeat lines are disabled; a slow request remains open without
+periodic client-side claims about its state.
+
+The shipped profile uses direct llama.cpp transport and provisional stderr token streaming.
+When llama.cpp provides `reasoning_content`, `reasoning`, or `thinking` stream deltas,
+they are displayed as timestamped `Model reasoning` output; they are not added as a
+synthetic message to the conversation.
+
+### Local model tool protocols
+
+Tool syntax belongs to the model as well as the server. `openai` (the default) uses
+llama.cpp's native OpenAI-compatible tool calls. llama.cpp reporting
+`supports_tools: false` describes the active chat template's native support; it does
+not necessarily mean that the underlying model cannot use tools.
+
+A future model-specific protocol can be added as another small adapter at the
+llama.cpp model boundary. The agent continues to receive the same normalized actions.
+The shipped profile uses the lossless `agent.context_mode=full`. Projection can be
+measured explicitly with `-c agent.context_mode=projected`; it changes only the
+temporary model input and preserves the full trajectory and deterministic ledger.
+
+While a model request is pending, `mini-slow` prints an update every minute. This confirms
+that the client request is still open; it does not claim the server is actively generating
+tokens. Set `agent.progress_interval_seconds=0` in an additional `-c` option to disable it.
 
 To change a setting for one run, add another `-c` argument:
 
