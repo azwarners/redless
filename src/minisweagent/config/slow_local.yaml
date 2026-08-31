@@ -96,7 +96,7 @@ model:
   # Optional path to a separately captured llama-server log for Phase F analysis.
   llama_log_path: null
   response_streaming: draft
-  # Use "nemotron" for NVIDIA Nemotron's textual <TOOLCALL> protocol.
+  # Tool protocol for llama.cpp's native OpenAI-compatible tool calls.
   tool_protocol: openai
   # No automatic replay after the original inference request.
   max_retries: 0

@@ -22,8 +22,8 @@ from minisweagent.models.utils.tool_protocol import get_tool_protocol
 class LlamaCppModelConfig(LitellmModelConfig):
     response_streaming: Literal["off", "status", "draft"] = "draft"
     """Direct llama.cpp transport mode. ``draft`` prints provisional text to stderr."""
-    tool_protocol: Literal["openai", "nemotron"] = "openai"
-    """Tool syntax used by the model; Nemotron is handled over content-only chat."""
+    tool_protocol: Literal["openai"] = "openai"
+    """Tool syntax used by the model."""
 
 
 @dataclass
@@ -106,12 +106,9 @@ class LlamaCppModel:
             **kwargs,
             "stream": True,
         }
-        if self.config.tool_protocol == "openai":
-            # Keep the agent's tool protocol authoritative. In particular, a
-            # stale ``tools`` value in model_kwargs must not disable tools.
-            request["tools"] = TOOL_DEFINITIONS
-        else:
-            request.pop("tools", None)
+        # Keep the agent's tool protocol authoritative. In particular, a
+        # stale ``tools`` value in model_kwargs must not disable tools.
+        request["tools"] = TOOL_DEFINITIONS
         request.pop("api_base", None)
         request.pop("api_key", None)
         response = requests.post(
@@ -259,32 +256,20 @@ class LlamaCppModel:
         if stats:
             self._print(format_llama_server_stats(stats))
         try:
-            if self.config.tool_protocol == "nemotron":
-                parsed_calls = protocol.parse_response(
-                    "".join(content), tool_calls,
-                    format_error_template=self.config.format_error_template,
-                    finish_reason=finish_reason,
-                )
-                # The textual call objects are intentionally kept in the same
-                # OpenAI-shaped envelope expected by trajectory consumers.
-                protocol_calls = protocol.response_tool_calls("".join(content))
-                actions = parsed_calls
-            else:
-                protocol_calls = tool_calls
-                actions = protocol.parse_response(
-                    "".join(content), tool_calls,
-                    format_error_template=self.config.format_error_template,
-                    finish_reason=finish_reason,
-                )
+            protocol_calls = tool_calls
+            actions = protocol.parse_response(
+                "".join(content), tool_calls,
+                format_error_template=self.config.format_error_template,
+                finish_reason=finish_reason,
+            )
         except Exception as error:
             if hasattr(error, "messages"):
                 error.messages[0].setdefault("extra", {}).update(
                     {"request_elapsed_seconds": time.monotonic() - started, "response": repr(tool_calls)}
                 )
             raise
-        # ``tool_calls`` contains only native OpenAI calls.  Textual protocols
-        # populate ``protocol_calls`` instead, so finality must use the
-        # protocol-normalized result or a textual tool call can be submitted.
+        # ``tool_calls`` contains only native OpenAI calls, so finality is
+        # determined by the absence of tool calls and presence of content.
         final = not protocol_calls and bool("".join(content).strip())
         return {
             "role": "assistant",
